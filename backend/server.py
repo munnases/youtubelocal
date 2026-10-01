@@ -25,7 +25,8 @@ PALETTES = [
     ["#FDCB6E", "#F39C12"],
 ]
 VIDEO_SUFFIXES = {".mp4", ".m4v", ".mov", ".webm"}
-THUMBNAIL_TYPES = {'.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png'}
+THUMBNAIL_TYPES = {'.webp': 'image/webp', '.jpg': 'image/jpeg',
+                   '.jpeg': 'image/jpeg', '.png': 'image/png'}
 
 
 def load_catalog(path):
@@ -50,16 +51,19 @@ def list_videos(media_dir, catalog_path):
             continue
         relative_path = path.relative_to(media_dir).as_posix()
         try:
-            details = json.loads(path.with_suffix('.info.json').read_text(encoding='utf-8'))
+            details = json.loads(path.with_suffix(
+                '.info.json').read_text(encoding='utf-8'))
             if not isinstance(details, dict):
                 details = {}
         except (OSError, json.JSONDecodeError):
             details = {}
         metadata = {**details, **catalog.get(relative_path, {})}
         stem = path.stem
-        title = metadata.get("title") or re.sub(r"[-_]+", " ", stem).strip().title()
+        title = metadata.get("title") or re.sub(
+            r"[-_]+", " ", stem).strip().title()
         video_id = catalog.get(relative_path, {}).get('id') or (
-            stem if path.parent == media_dir else hashlib.sha256(relative_path.encode('utf-8')).hexdigest()[:20]
+            stem if path.parent == media_dir else hashlib.sha256(
+                relative_path.encode('utf-8')).hexdigest()[:20]
         )
         palette = PALETTES[len(videos) % len(PALETTES)]
         file_stat = path.stat()
@@ -93,8 +97,10 @@ class RequestHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Range, Content-Type, X-Device-ID")
+        self.send_header("Access-Control-Allow-Methods",
+                         "GET, HEAD, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers",
+                         "Range, Content-Type, X-Device-ID")
         self.end_headers()
 
     def do_HEAD(self):
@@ -111,7 +117,8 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def public_videos(self):
         videos = self.scanner.videos()
-        host = self.headers.get('Host', f'127.0.0.1:{self.server.server_port}')
+        host = self.headers.get(
+            'Host', f'127.0.0.1:{self.server.server_port or "8001"}')
         for video in videos:
             video['streamUrl'] = f"http://{host}/media/{quote(str(video['id']), safe='')}"
             thumbnail = video.pop('thumbnailFile')
@@ -128,7 +135,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             device = self.device_id()
             length = int(self.headers.get('Content-Length', '0'))
             if not 0 < length <= 262144:
-                raise ValueError('Request body must be between 1 and 262144 bytes.')
+                raise ValueError(
+                    'Request body must be between 1 and 262144 bytes.')
             body = json.loads(self.rfile.read(length))
             if not isinstance(body, dict):
                 raise ValueError('Expected a JSON object.')
@@ -136,7 +144,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.send_json(self.scanner.request_scan(), 202)
                 return
             if path == '/api/scan/settings':
-                self.send_json(self.scanner.set_interval(body.get('intervalMinutes')))
+                self.send_json(self.scanner.set_interval(
+                    body.get('intervalMinutes')))
                 return
             valid_ids = {v['id'] for v in self.scanner.videos()}
             if path == '/api/watch/import':
@@ -174,12 +183,14 @@ class RequestHandler(BaseHTTPRequestHandler):
         except (ValueError, TypeError, OverflowError) as error:
             self.send_json({'error': str(error)}, 400)
         except sqlite3.Error:
-            self.send_json({'error': 'Watch storage is temporarily unavailable. Please retry.'}, 503)
+            self.send_json(
+                {'error': 'Watch storage is temporarily unavailable. Please retry.'}, 503)
 
     def route(self, send_body):
         path = unquote(urlparse(self.path).path)
         if path == "/api/health":
-            self.send_json({"ok": True, "videos": self.scanner.status()['videoCount']})
+            self.send_json(
+                {"ok": True, "videos": self.scanner.status()['videoCount']})
             return
         if path == '/api/scan':
             self.send_json(self.scanner.status())
@@ -199,14 +210,16 @@ class RequestHandler(BaseHTTPRequestHandler):
                 if offset < 0 or not 1 <= limit <= 50:
                     raise ValueError('Invalid page size or offset.')
                 self.send_json(self.store.recommendations(device, self.public_videos(),
-                    session=query.get('session', [None])[0], offset=offset, limit=limit,
+                                                          session=query.get('session', [None])[
+                    0], offset=offset, limit=limit,
                     exclude=query.get('exclude', [''])[0]))
             except LookupError as error:
                 self.send_json({'error': str(error)}, 410)
             except (ValueError, TypeError, OverflowError) as error:
                 self.send_json({'error': str(error)}, 400)
             except sqlite3.Error:
-                self.send_json({'error': 'Suggestion storage is temporarily unavailable. Please retry.'}, 503)
+                self.send_json(
+                    {'error': 'Suggestion storage is temporarily unavailable. Please retry.'}, 503)
             return
         if path.startswith('/thumbnails/'):
             self.serve_thumbnail(path.removeprefix('/thumbnails/'), send_body)
@@ -253,7 +266,8 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def stream_video(self, video_id, send_body):
         videos = self.scanner.videos()
-        match = next((video for video in videos if video["id"] == video_id), None)
+        match = next(
+            (video for video in videos if video["id"] == video_id), None)
         if match is None:
             self.send_error(404)
             return
@@ -278,7 +292,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 start_text, end_text = match_range.groups()
                 if start_text:
                     start = int(start_text)
-                    end = min(int(end_text), size - 1) if end_text else size - 1
+                    end = min(int(end_text), size -
+                              1) if end_text else size - 1
                 else:
                     suffix_length = int(end_text)
                     if suffix_length <= 0:
@@ -295,7 +310,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
         length = end - start + 1
         self.send_response(status)
-        self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+        self.send_header("Content-Type", mimetypes.guess_type(path.name)
+                         [0] or "application/octet-stream")
         self.send_header("Content-Length", str(length))
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -326,8 +342,10 @@ def main():
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--media", type=Path, default=Path("backend/media"))
-    parser.add_argument("--catalog", type=Path, default=Path("backend/catalog.json"))
-    parser.add_argument('--db', type=Path, default=Path('backend/data/familytube.sqlite3'))
+    parser.add_argument("--catalog", type=Path,
+                        default=Path("backend/catalog.json"))
+    parser.add_argument('--db', type=Path,
+                        default=Path('backend/data/familytube.sqlite3'))
     parser.add_argument('--scan-interval-minutes', type=int, default=None,
                         help='Override and save the scan interval: 0 disables periodic scans, 1-10080 sets minutes. Default: saved value or 15.')
     args = parser.parse_args()
@@ -337,13 +355,15 @@ def main():
     RequestHandler.media_dir = args.media.resolve()
     RequestHandler.catalog_path = args.catalog.resolve()
     RequestHandler.store = WatchStore(args.db.resolve())
-    RequestHandler.scanner = CatalogScanner(RequestHandler.store, lambda: list_videos(RequestHandler.media_dir, RequestHandler.catalog_path))
+    RequestHandler.scanner = CatalogScanner(RequestHandler.store, lambda: list_videos(
+        RequestHandler.media_dir, RequestHandler.catalog_path))
     if args.scan_interval_minutes is not None:
         RequestHandler.scanner.set_interval(args.scan_interval_minutes)
     RequestHandler.scanner.scan_once()
     RequestHandler.scanner.start()
     server = ThreadingHTTPServer((args.host, args.port), RequestHandler)
-    print(f"FamilyTube is serving {RequestHandler.media_dir} at http://{args.host}:{args.port}")
+    print(
+        f"FamilyTube is serving {RequestHandler.media_dir} at http://{args.host}:{args.port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

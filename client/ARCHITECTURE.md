@@ -1,6 +1,6 @@
 # FamilyTube: Android phone and TV architecture
 
-Design date: 2026-09-29. Status: proposed architecture; implementation and device benchmarks pending.
+Design date: 2026-09-29. Updated 2026-10-01: S0/S1 scaffold, S2 playback, and S3 Room catalog/progress/outbox implemented and checked on phone and Google TV emulators. Physical-device verification is deferred by the user. See [implementation notes](docs/IMPLEMENTATION_NOTES.md), [S3 verification](docs/S3_VERIFICATION.md), and [media preparation](docs/MEDIA_PREPARATION.md) for observed evidence and remaining gaps.
 
 ## 1. Product and key decisions
 
@@ -81,7 +81,7 @@ The shared architecture is compiled into each APK. Phone and TV have independent
 
 For a small library, download the whole catalog into Room. Search and category filtering run locally. Refresh on launch, foreground return when stale, and explicit refresh. Network calls must never be required before displaying previously cached items or starting a video whose URL is already known.
 
-## 4. Proposed project layout
+## 4. Project layout
 
 ```text
 client/
@@ -92,7 +92,7 @@ client/
     data/                 # API DTOs, Room, repositories, preferences, sync outbox
     playback/             # ExoPlayer, preload policy, cache, MediaSession, state
     designsystem/         # Colors, spacing, icons, shared unthemed visual primitives
-  benchmark/              # Device journeys and performance measurements
+  benchmark/              # Planned in S6 for device journeys and performance measurements
   gradle/libs.versions.toml
   build.gradle.kts
   settings.gradle.kts
@@ -201,7 +201,7 @@ Use one application-owned `SimpleCache` instance per cache directory and a share
 
 Key entries by `serverIdentity + videoId + contentVersion + renditionId`. The current backend lacks `contentVersion`; add a version that changes whenever bytes change before enabling persistent media reuse across catalog refreshes. Do not assume an unchanged URL means unchanged content. Until that field exists, namespace media cache entries by a fresh catalog generation and invalidate across refreshes; accept reduced reuse.
 
-The application generates and persists a local server identity for the configured library. Changing to a different library isolates catalog, history, and media cache. Updating the address of the same server requires an explicit parent choice or a future server-provided identity.
+S3 generates and persists a local UUID for each normalized server origin in Room. Returning to an origin restores that library's catalog/history; changing origins isolates them. Updating the address of the same server currently creates another library. An explicit same-library migration flow or server-provided identity is deferred. Media byte caching remains S6 work.
 
 ### D. Preload a small set of likely selections
 
@@ -274,6 +274,8 @@ Create a new session ID for a new viewing session; persist it and its monotonica
 
 Save locally every five seconds and on pause, seek completion, stop, and item changes. Coalesce unsent snapshots per session into a Room outbox. Sync asynchronously while foregrounded and retry pending records using WorkManager; persist before scheduling. Show local progress immediately and reconcile server snapshots by timestamp. Clamp invalid positions; resume near-end items from the beginning according to a documented product rule, initially within the final 10 seconds or at least 95% watched by position.
 
+S3 implements these behaviors through the model's `ProgressStore` boundary. An application-owned ordered writer completes earlier saves before a resume lookup, without blocking the player thread. Selection tokens reject older lookups. Local pending events win over fetched history; otherwise only strictly newer history replaces local progress. Acknowledging a sent sequence cannot delete a newer coalesced event. Foreground sync requests are conflated; a unique WorkManager retry task uses eight attempts with exponential backoff starting at 30 seconds. Periodic recovery runs on a 15-minute minimum interval, subject to OS scheduling. No validated-internet constraint is applied, because LAN-only Wi-Fi must work. Permanent 400/404/410 watch rejections discard the outbox event while retaining local progress. Server recommendation order is stored with catalog entries; unavailable recommendations fall back to cached category/recent items.
+
 Proposed backend extensions, separate from existing behavior:
 
 - Stable `serverId`, content version, MIME type, codec information, and optional rendition list.
@@ -328,6 +330,8 @@ Add targeted tests for API unit conversion, progress event sequencing, cache ide
 
 ## 11. Delivery order
 
+The detailed [execution plan](EXECUTION_PLAN.md) expands these milestones into stages with dependencies, completion checks, and a progress tracker. See the repository [agent instructions](../AGENTS.md) for implementation rules.
+
 1. **Playback proof:** scaffold the shared Kotlin project and both launchers; connect to the existing API; play and seek on the real phone and TV. Inspect representative MP4/WebM files and settle the compatible import format. Exit when both devices reliably decode the selected rendition.
 2. **Core experience:** implement cached catalog, home/search, custom player controls, persistent progress, TV focus restoration, and phone fullscreen. Save progress and stop playback when leaving watch. Exit when the core family viewing journeys work end to end.
 3. **Responsiveness:** add version-safe byte caching, bounded preloading, sized thumbnail loading, and stable player-surface transitions. Add performance instrumentation and Baseline Profiles. Exit when the reference-device targets pass or documented measurements justify revised budgets.
@@ -335,4 +339,4 @@ Add targeted tests for API unit conversion, progress event sequencing, cache ide
 5. **Shorts, later phase:** add a dedicated Shorts option for small, short-form videos from the family library. Define content limits and touch/remote navigation, then reuse the shared player, cache, and bounded preloading. Shorts is not part of the first release.
 6. **Optional enhancements:** explicit offline downloads, shared child profiles, seek previews, subtitles, PiP, or adaptive quality based on actual family use.
 
-The architecture is ready to guide implementation. No Android build, performance claim, live-server test, or media conversion is implied by this design document.
+The implementation uses typed catalog/history/watch DTOs, Room catalog/progress/outbox tables, DataStore installation/settings identity, and an Activity-retained playback ViewModel with one ExoPlayer/MediaSession per app session. The present lists and controls are functional proof screens. Polished phone/TV navigation, media byte caching, and preloading remain in later stages. Builds, tests, and phone/Google TV emulator journeys are recorded in the execution plan and S3 report. Physical-device performance and family-media compatibility remain unverified.

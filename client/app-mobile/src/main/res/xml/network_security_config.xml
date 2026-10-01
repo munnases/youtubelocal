@@ -1,0 +1,4 @@
+<network-security-config>
+    <!-- The parent may configure any home server origin. Client requests use that origin only. -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
