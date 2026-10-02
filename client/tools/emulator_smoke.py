@@ -40,7 +40,15 @@ class Device:
         points = list(map(int, re.findall(r"\d+", node.get("bounds"))))
         self.command("shell", "input", "tap", (points[0] + points[2]) // 2, (points[1] + points[3]) // 2)
 
-    def fill(self, value, label=None):
+    def descriptions(self):
+        return [n.get("content-desc") for n in self.tree().iter("node") if n.get("content-desc")]
+
+    def tap_description(self, description):
+        node = next(n for n in self.tree().iter("node") if n.get("content-desc") == description)
+        points = list(map(int, re.findall(r"\d+", node.get("bounds"))))
+        self.command("shell", "input", "tap", (points[0] + points[2]) // 2, (points[1] + points[3]) // 2)
+
+    def fill(self, value, label=None, dismiss_keyboard=True):
         nodes = list(self.tree().iter("node"))
         edit = next(n for n in nodes if n.get("class") == "android.widget.EditText" and
                     (label is None or label in n.get("text", "")))
@@ -50,17 +58,18 @@ class Device:
         self.key(*(["KEYCODE_DEL"] * (len(edit.get("text", "")) + 2)))
         if value:
             self.command("shell", "input", "text", value.replace(" ", "%s"))
-        self.key("KEYCODE_BACK")  # Dismiss keyboard.
+        if dismiss_keyboard:
+            self.key("KEYCODE_BACK")
 
     def setup(self, url):
         self.launch()
         time.sleep(1)
-        if "Server" in self.texts():
+        if "Server" in self.texts() or "Server" in self.descriptions():
             if self.package.endswith(".tv"):
                 self.focus("Server", key="KEYCODE_DPAD_UP")
                 self.key("KEYCODE_DPAD_CENTER")
             else:
-                self.tap_text("Server")
+                self.tap_description("Server") if "Server" in self.descriptions() else self.tap_text("Server")
         if "Server address" not in self.texts():
             raise RuntimeError("Server setup screen is not visible; dismiss any emulator system prompt first")
         self.fill(url)
@@ -76,7 +85,8 @@ class Device:
         if self.package.endswith(".tv"):
             self.key("KEYCODE_BACK")  # Return to catalog after the origin has been persisted.
         else:
-            self.tap_text("Open library")
+            if "Open library" in self.texts():
+                self.tap_text("Open library")
 
     def focus(self, text, key="KEYCODE_DPAD_DOWN", attempts=20):
         for _ in range(attempts):

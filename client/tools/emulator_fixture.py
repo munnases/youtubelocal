@@ -5,6 +5,9 @@ from pathlib import Path
 import shutil
 import sys
 import threading
+import os
+import struct
+import zlib
 from http.server import ThreadingHTTPServer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -18,6 +21,8 @@ def main():
     parser.add_argument("--sample", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--items", type=int, default=2, help="2-24 catalog entries for scrolling checks")
+    parser.add_argument("--posters", action="store_true", help="Generate deterministic PNG fixture artwork")
     args = parser.parse_args()
     root = args.output.resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -29,10 +34,32 @@ def main():
         target = folder / "sample.mp4"
         if not target.exists():
             shutil.copyfile(args.sample, target)
-    catalog.write_text(json.dumps([
-        {"file": "Songs/sample.mp4", "id": "song", "title": "Song Alpha", "duration": 0},
-        {"file": "Stories/sample.mp4", "id": "story", "title": "Story Beta", "duration": 0},
-    ]), encoding="utf-8")
+    entries = []
+    for index in range(max(2, min(24, args.items))):
+        category = "Songs" if index % 2 == 0 else "Stories"
+        target = media / category / ("sample.mp4" if index < 2 else f"sample-{index:02d}.mp4")
+        if not target.exists():
+            os.link(media / category / "sample.mp4", target)  # Read-only test bytes shared inside the fixture.
+        entries.append({"file": target.relative_to(media).as_posix(),
+                        "id": ("song", "story")[index] if index < 2 else f"video-{index:02d}",
+                        "title": ("Song Alpha", "Story Beta")[index] if index < 2 else f"Family clip {index:02d}",
+                        "duration": 0})
+        if args.posters:
+            # Synthetic fixture artwork exercises fetching/caching, without decoding frames in the UI.
+            width, height = 640, 360
+            def chunk(kind, data):
+                return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+            rows = bytearray()
+            for y in range(height):
+                rows.append(0)
+                for x in range(width):
+                    triangle = 270 < x < 390 and abs(y - 180) < (390 - x) * .65
+                    rows.extend((245, 245, 245) if triangle else
+                                ((35 + index * 17 + x // 5) % 190, 40 + y // 4, 75 + x // 6))
+            target.with_suffix(".png").write_bytes(b"\x89PNG\r\n\x1a\n" +
+                chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) +
+                chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+    catalog.write_text(json.dumps(entries), encoding="utf-8")
     store = WatchStore(root / "watch.sqlite3")
     scanner = CatalogScanner(store, lambda: list_videos(media, catalog))
     scanner.scan_once()

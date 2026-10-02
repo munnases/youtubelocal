@@ -1,6 +1,6 @@
 # FamilyTube execution plan
 
-Status: S0/S1 scaffolded; S2 playback checked on phone and Google TV emulators; S3 implemented and verified for the current emulator scope. Physical-device/media checks are deferred at the user's request.
+Status: S0/S1 scaffolded; S2 playback checked on phone and Google TV emulators; S3 and S4 implemented and verified for the current emulator scope. Physical-device/media checks are deferred at the user's request.
 
 This plan implements [the architecture](ARCHITECTURE.md). Repository-wide [agent instructions](../AGENTS.md) define how to execute and report the work.
 
@@ -38,7 +38,7 @@ Use `Not started`, `In progress`, `Verification pending`, `Blocked`, `Complete`,
 | S1 | Buildable phone and TV Kotlin shells | S0 toolchain decisions | Verification pending |
 | S2 | Working playback on both devices | S1 | Verification pending |
 | S3 | Cached catalog and durable progress | S2 shared playback contract | Complete |
-| S4 | Complete phone viewing experience | S3 | Not started |
+| S4 | Complete phone viewing experience | S3 | Complete |
 | S5 | Complete TV viewing experience | S3 | Not started |
 | S6 | Version-safe caching, preloading, performance | S4, S5 | Not started |
 | S7 | Parent settings and failure recovery | S6 integration | Not started |
@@ -190,6 +190,22 @@ Use `Not started`, `In progress`, `Verification pending`, `Blocked`, `Complete`,
 **Exit checks:** quick navigation has no overlapping audio, unbounded preload growth, or stale selection takeover; only parent-supplied library content appears; Back saves/stops as specified; first-release regular-video journeys still pass. Add Shorts-specific device performance evidence.
 
 ## Progress record
+
+### 2026-10-02 - S4 completed for the authorized emulator scope
+
+- **Changed areas:** Phone Home/Library, category chips/search, constrained poster loading, continue watching, inline watch/related items, landscape fullscreen, double-tap seek, release-only scrubber, three-second controls timeout, accessibility labels and touch targets, retained browsing scroll, and screen-awake behavior. Shared coordinator now prepares on Retry and seeks to the beginning on Replay. No backend API change was needed.
+- **Build/check evidence:** Both debug APKs assembled and both lint tasks passed with warnings. Shared JVM suites passed 8 tests; shared playback selection/background instrumentation passed 1 test on the phone. Six phone UI tests plus the real-player Activity journey passed together as 7 tests. The journey's additional Replay assertion passed in a separate focused run. Commands, logs and details are in [S4 verification](docs/S4_VERIFICATION.md).
+- **Device evidence:** A36 Android 17/API 37.2 emulator: browse -> play -> seek -> playing fullscreen -> inline -> Back -> resume passed. Direct assertions retain the same player/media ID across rotation, clear the media item on Back, and restore saved progress. ADB screenshots cover Home, inline/fullscreen, continue watching, search/no-match, cached offline catalog, failed stream and successful Retry. Back-to-browse MediaSession reports NONE with an empty queue.
+- **Observed issues/resolution:** Visual review fixed watch-text contrast, timeline appearance and populated-search editing. Espresso 3.7.0 resolves test initialization on API 37. One manual input-focus ANR affected app/system UI after reinstall; emulator reboot cleared it and subsequent flows/tests passed. Its unknown root cause and diagnostic captures remain documented, not dismissed as physical-device evidence.
+- **Preserved scope/limitations:** User's backend data and generated Gradle daemon file were not edited as part of S4. Fixtures and artifacts stay under ignored build output; the current phone APK is installed and the original server origin restored. No physical-device, complete family-codec, TalkBack or release-performance acceptance is claimed. Existing S0/S1/S2 hardware/media gaps remain visible. Parent PIN/autoplay settings and versioned media cache/preloading belong to later stages.
+- **Next concrete action:** S5 Android TV browsing, D-pad navigation, overlay controls and focus/scroll restoration. S4 is complete for the requested emulator scope; physical phone verification remains deferred.
+
+### 2026-10-02 - S4 started
+
+- **Authorized scope:** Complete the phone browsing/watch experience and verify on the existing emulator. Physical hardware remains deferred.
+- **Changed areas planned:** Phone Home/Library, artwork and continue watching, related videos, fullscreen gestures/controls, scroll restoration, and focused UI/lifecycle checks.
+- **Initial evidence:** `emulator-5554` is available; S3 sample media is present. Existing backend watch database and generated Gradle daemon configuration changes are unrelated and will be preserved.
+- **Next action:** Implement the phone UI using the retained shared coordinator, then exercise the full acceptance flow against an isolated backend fixture.
 
 ### 2026-10-01 / S1-S2 emulator checks and S3 completion
 

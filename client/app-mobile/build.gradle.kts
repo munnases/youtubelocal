@@ -14,6 +14,7 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
     compileOptions {
@@ -34,6 +35,14 @@ dependencies {
     implementation(libs.activity.compose)
     implementation(libs.activity.ktx)
     implementation(libs.media3.ui.compose)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network)
+    implementation(libs.okhttp)
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.test)
+    androidTestImplementation(libs.espresso.core)
+    androidTestImplementation(libs.android.test.runner)
+    debugImplementation(libs.compose.test.manifest)
 }

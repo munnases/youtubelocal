@@ -137,7 +137,14 @@ class PlaybackCoordinator @Inject constructor(@ApplicationContext private val co
             startPlayer(video, mutableState.value.positionMs)
             return
         }
-        exoPlayer?.play()
+        exoPlayer?.let { player ->
+            if (player.playerError != null) {
+                mutableState.value = mutableState.value.copy(error = null, phase = PlaybackPhase.PREPARING)
+                player.prepare()
+            }
+            if (player.playbackState == Player.STATE_ENDED) player.seekTo(0)
+            player.play()
+        }
     }
 
     fun pause() {

@@ -1,6 +1,6 @@
 # FamilyTube Android client
 
-Native Kotlin phone and Android TV apps for streaming a family video library from a home server over Wi-Fi. S0/S1 scaffolding, S2 playback, and S3 cached catalog/durable progress are implemented. Both apps show saved libraries, search/filter locally, and resume through Media3. Phone and Google TV emulator checks passed; physical-device verification is deferred at the user's request.
+Native Kotlin phone and Android TV apps for streaming a family video library from a home server over Wi-Fi. S0/S1 scaffolding, S2 playback, S3 cached catalog/durable progress, and S4 phone browsing/watch UI are implemented. The phone has thumbnail browsing, Home/Library navigation, continue watching, related items, gestures, and fullscreen controls. Phone and Google TV emulator checks are recorded separately; physical-device verification is deferred at the user's request.
 
 Read [the architecture design](ARCHITECTURE.md) for the module structure, phone and TV experience, playback lifecycle, caching and preloading strategy, and existing backend integration.
 
@@ -8,7 +8,7 @@ Follow [the staged execution plan](EXECUTION_PLAN.md) for implementation order, 
 
 Scope: no in-app mini-player. Shorts for small, short-form videos is planned after the first release.
 
-See [S0 implementation notes](docs/IMPLEMENTATION_NOTES.md) for the observed toolchain, backend contract, device matrix, and media audit; [S3 verification](docs/S3_VERIFICATION.md) for emulator evidence and persistence/sync behavior; and [media preparation](docs/MEDIA_PREPARATION.md) for compatible-copy commands. The six modules in the architecture exist. The phone and TV use separate Compose Material themes, with shared models, Room repositories, playback coordinator, and design colors.
+See [S0 implementation notes](docs/IMPLEMENTATION_NOTES.md) for the observed toolchain, backend contract, device matrix, and media audit; [S3 verification](docs/S3_VERIFICATION.md) for persistence/sync evidence; [S4 verification](docs/S4_VERIFICATION.md) for the phone acceptance flow and screenshots; and [media preparation](docs/MEDIA_PREPARATION.md) for compatible-copy commands. The six modules in the architecture exist. The phone and TV use separate Compose Material themes, with shared models, Room repositories, playback coordinator, and design colors.
 
 ## Build and verification
 
@@ -21,10 +21,22 @@ Open this directory as the Android Studio project, or run the checked-in wrapper
 .\gradlew.bat :core:data:connectedDebugAndroidTest :core:playback:connectedDebugAndroidTest
 ```
 
-Debug APKs are written to `app-mobile/build/outputs/apk/debug/` and `app-tv/build/outputs/apk/debug/`. Build output, local SDK paths, and signing material are ignored by Git. All four commands above ran successfully on 2026-10-01. Unit suites passed 8 tests; shared-module instrumentation passed 5 tests on each of the Android 17 phone and Android 14 Google TV emulators. App-module UI instrumentation has not been added/run; the viewing flows were driven through ADB. This does not verify physical devices or performance targets.
+Debug APKs are written to `app-mobile/build/outputs/apk/debug/` and `app-tv/build/outputs/apk/debug/`. Build output, local SDK paths, and signing material are ignored by Git. The commands above ran successfully on 2026-10-01; shared-module instrumentation passed 5 tests on each emulator then. On 2026-10-02, both apps assembled/linted, the 8 shared unit tests passed, and the playback selection/background instrumentation passed on the phone. S4 added 6 focused phone UI tests and one real-player Activity journey. This does not verify physical devices or performance targets.
 
-The server address accepts an `http://` or `https://` origin and is stored with DataStore. Open **Server** to edit it, or select a video from the library to resume locally saved progress. Search titles and category buttons filter the saved catalog without network requests. Refresh preserves cached items on failure. Back leaves watch, queues a local progress save, and stops playback; phone Fullscreen rotates to landscape and hides system bars without restarting the media item. TV video fills the screen behind its controls. Controls are still proof screens; timeout, polished browsing, and complete focus restoration belong to S4/S5.
+For the S4 real-player test, start the isolated fixture in another shell (the sample MP4 is untracked; see the S3 report for its source):
+
+```powershell
+python tools/emulator_fixture.py --sample build/s3-sample.mp4 --output build/s4-fixture --items 12 --posters
+$env:ANDROID_SERIAL = 'emulator-5554'
+.\gradlew.bat :app-mobile:connectedDebugAndroidTest '-Pandroid.testInstrumentationRunnerArguments.fixtureServer=http://10.0.2.2:8765'
+```
+
+This command passed all 7 phone tests. Without `fixtureServer`, the real-player journey is skipped; the 6 focused UI tests require no backend. Use a disposable emulator installation: Gradle's connected-test runner can reinstall/remove the target APK and its data. The fixture server uses its own media/catalog/watch database under ignored `build/`. Stop it with Ctrl+C after testing.
+
+The server address accepts an `http://` or `https://` origin and is stored with DataStore. Open the **Server** icon to edit it. Phone Home includes continue watching; Library shows all saved videos. Search titles and category chips filter locally. Thumbnail loading uses a single Coil loader with the shared server HTTP client and versioned artwork URLs; missing/failed artwork keeps a fixed 16:9 placeholder. Refresh preserves cached items on failure.
+
+On the phone, watch shows video above its title and cached related items. Double-tap either side for a bounded ten-second seek; dragging the timeline previews the position and seeks on release. Controls hide after three seconds while playing and remain visible while paused, scrubbing or showing an error. Fullscreen rotates to landscape and hides system bars while retaining the player/media item. Back first returns to portrait inline view, then saves/stops playback and restores browsing scroll. Backgrounding saves/releases playback and requires explicit Play on return. TV still uses its functional proof UI; complete remote browsing/focus restoration belongs to S5.
 
 Progress is saved every five seconds while playing and on playback transitions. Room stores progress and the coalesced watch outbox atomically before asynchronous sync. Installation IDs persist in DataStore; retries reuse persisted session IDs/sequences. WorkManager retries use capped exponential backoff with periodic recovery and do not require validated internet. Resume restarts items within their final 10 seconds or at 95% of known duration. Backgrounding saves/releases the player, and Play is explicit on return. Each normalized server origin has a separate local library ID; returning to that origin restores its catalog/progress. Changing a server's address currently creates a separate library; an explicit same-library migration flow is deferred.
 
-The health check does not require Android's validated-internet signal. Target SDK 36 intentionally keeps LAN access under `INTERNET`; moving to target 37 requires the `ACCESS_LOCAL_NETWORK` permission and runtime flow. The setup screen is a pre-release shell; parent PIN gating belongs to S7. S4 phone UI is the next unstarted stage; S5 TV UI can follow independently. Hardware/media compatibility and release checks remain pending.
+The health check does not require Android's validated-internet signal. Target SDK 36 intentionally keeps LAN access under `INTERNET`; moving to target 37 requires the `ACCESS_LOCAL_NETWORK` permission and runtime flow. The setup screen is a pre-release shell; parent PIN gating belongs to S7. S5 TV UI is the next unstarted stage. Hardware/media compatibility and release checks remain pending.

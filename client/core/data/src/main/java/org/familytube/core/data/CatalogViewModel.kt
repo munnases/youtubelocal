@@ -20,6 +20,7 @@ data class CatalogState(
     val serverUrl: String = "",
     val settingsLoaded: Boolean = false,
     val videos: List<Video> = emptyList(),
+    val allVideos: List<Video> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
     val libraryId: String = "",
@@ -65,6 +66,7 @@ class CatalogViewModel @Inject constructor(
                                 allVideos = videos
                                 val state = mutableState.value
                                 mutableState.value = state.copy(videos = filterCatalog(videos, state.query, state.category),
+                                    allVideos = videos,
                                     categories = videos.map { it.category }.filter { it.isNotBlank() }.distinct().sorted(),
                                     progress = saved.associateBy { it.videoId })
                             }
@@ -80,6 +82,8 @@ class CatalogViewModel @Inject constructor(
         mutableState.value = mutableState.value.copy(query = query,
             videos = filterCatalog(allVideos, query, mutableState.value.category))
     }
+
+    suspend fun related(video: Video): List<Video> = repository.related(video)
     fun setCategory(category: String) {
         mutableState.value = mutableState.value.copy(category = category,
             videos = filterCatalog(allVideos, mutableState.value.query, category))
