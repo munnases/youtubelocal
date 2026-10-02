@@ -1,6 +1,6 @@
 # FamilyTube execution plan
 
-Status: S0/S1 scaffolded; S2 playback checked on phone and Google TV emulators; S3 and S4 implemented and verified for the current emulator scope. Physical-device/media checks are deferred at the user's request.
+Status: S0/S1 scaffolded; S2 playback checked on phone and Google TV emulators; S3, S4 and S5 implemented and verified for the current emulator scope. Physical-device/media checks are deferred at the user's request.
 
 This plan implements [the architecture](ARCHITECTURE.md). Repository-wide [agent instructions](../AGENTS.md) define how to execute and report the work.
 
@@ -39,7 +39,7 @@ Use `Not started`, `In progress`, `Verification pending`, `Blocked`, `Complete`,
 | S2 | Working playback on both devices | S1 | Verification pending |
 | S3 | Cached catalog and durable progress | S2 shared playback contract | Complete |
 | S4 | Complete phone viewing experience | S3 | Complete |
-| S5 | Complete TV viewing experience | S3 | Not started |
+| S5 | Complete TV viewing experience | S3 | Verification pending |
 | S6 | Version-safe caching, preloading, performance | S4, S5 | Not started |
 | S7 | Parent settings and failure recovery | S6 integration | Not started |
 | S8 | Verified phone/TV release artifacts | S0-S7 exit criteria | Not started |
@@ -190,6 +190,23 @@ Use `Not started`, `In progress`, `Verification pending`, `Blocked`, `Complete`,
 **Exit checks:** quick navigation has no overlapping audio, unbounded preload growth, or stale selection takeover; only parent-supplied library content appears; Back saves/stops as specified; first-release regular-video journeys still pass. Add Shorts-specific device performance evidence.
 
 ## Progress record
+
+### 2026-10-02 - S5 emulator acceptance finished; physical TV verification pending
+
+- **Changed areas:** TV Material rail and category/poster rows, continue watching, local search/Clear, remote field/keyboard exits, saveable row/card focus and scroll state, fullscreen timeout/reveal controls, bounded seek preview/OK/Back, related videos, dedicated media keys and screen-awake behavior. TV uses one Coil loader with the shared HTTP client; shared playback/backend contracts were unchanged.
+- **Checks:** TV app/test APKs assembled; TV lint passed with 0 errors and 3 warnings; phone APK regression build passed. All 6 TV instrumentation tests passed, including real-player seek, media keys, stop/resume, related selection and exact-card restoration. Direct ADB installation/instrumentation preserved app data. Details and actual commands: [S5 verification](docs/S5_VERIFICATION.md).
+- **Emulator evidence:** Existing Google TV API 34 AVD, observed 1920x1080 output; isolated 24-item H.264/AAC fixture with synthetic posters. Native D-pad/OK/Back checks cover setup, fullscreen preview/cancel/commit, related overlay, return focus, search/no match/Clear/results, and cached browsing during HTTP 503. Media play/pause and stop work; explicit Retry recovered one observed fixture EOF/source error and native fast-forward/rewind moved 1 -> 11 -> 1 seconds.
+- **Fixes:** Rounded poster shapes prevent default circular clipping; focus border/timeline styling are readable in screenshots. Sequential library/focus initialization avoids clearing attached scroll states. Explicit keyboard hiding makes field exits work with the TV IME. Tests wait for watch route registration before Back.
+- **Limits:** Physical TV/OEM remote and keyboard, accessibility, full family media and release-performance checks remain deferred. One transient fixture EOF after outage was recoverable with Retry; its exact cause is not established and diagnostics are retained. Existing backend database change was preserved; emulator installation identity and original server address were retained/restored. Fixture output/APKs/screenshots remain ignored build artifacts.
+- **Status/next:** S5 implementation and requested emulator scope are finished. Tracker remains Verification pending for the real-TV exit check. Next implementation stage is S6: additive content-version contract, then cache/preload/performance work when authorized.
+
+
+### 2026-10-02 - S5 started
+
+- **Scope:** TV Material browsing, remote-only navigation, fullscreen controls, seek preview/confirmation, related videos, and focus/scroll restoration. Testing remains emulator-only as requested.
+- **Initial state:** Existing Google TV API 34 AVD was stopped; starting it for verification. The unrelated backend watch database change is preserved.
+- **Next action:** Build the TV increment and exercise D-pad/OK/Back/media keys against an isolated fixture.
+
 
 ### 2026-10-02 - S4 completed for the authorized emulator scope
 
