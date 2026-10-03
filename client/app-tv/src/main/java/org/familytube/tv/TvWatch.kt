@@ -34,14 +34,18 @@ internal fun TvWatchScreen(video: Video?, playback: PlaybackViewModel,
     related: suspend (Video) -> List<Video>, onLeave: () -> Unit, onSelect: (Video) -> Unit) {
     val state by playback.state.collectAsState()
     val player by playback.player.collectAsState()
+    val next by playback.nextState.collectAsState()
     var candidates by remember(video?.id) { mutableStateOf<List<Video>>(emptyList()) }
     LaunchedEffect(video?.libraryId, video?.id) {
         candidates = if (video == null) emptyList() else try { related(video) }
             catch (error: Exception) { if (error is CancellationException) throw error; emptyList() }
     }
+    LaunchedEffect(video, candidates) {
+        if (video != null) playback.setNextCandidates(video, candidates)
+    }
     TvWatchControls(video, state, candidates, playback::pause,
         { if (state.video == null && video != null) playback.play(video) else playback.resume() },
-        playback::seekTo, onLeave, onSelect) {
+        playback::seekTo, onLeave, onSelect, next, playback::playNext, playback::cancelNext) {
         if (player != null) ContentFrame(player = player!!, modifier = Modifier.fillMaxSize())
         else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Press Play to resume", color = Color.White) }
     }
@@ -51,6 +55,7 @@ internal fun TvWatchScreen(video: Video?, playback: PlaybackViewModel,
 @Composable
 internal fun TvWatchControls(video: Video?, state: PlaybackState, related: List<Video>, onPause: () -> Unit,
     onPlay: () -> Unit, onSeek: (Long) -> Unit, onLeave: () -> Unit, onSelect: (Video) -> Unit,
+    next: NextVideoState = NextVideoState(), onNext: () -> Unit = {}, onCancelNext: () -> Unit = {},
     surface: @Composable () -> Unit = {}) {
     val rootFocus = remember { FocusRequester() }
     val playFocus = remember { FocusRequester() }
@@ -79,6 +84,7 @@ internal fun TvWatchControls(video: Video?, state: PlaybackState, related: List<
     }
     BackHandler {
         when {
+            next.secondsRemaining != null -> onCancelNext()
             preview != null -> { preview = null; activity++; timelineFocus.requestFocus() }
             showingRelated -> { showingRelated = false; activity++ }
             visible -> visible = false
@@ -89,7 +95,7 @@ internal fun TvWatchControls(video: Video?, state: PlaybackState, related: List<
         val code = event.nativeKeyEvent.keyCode
         val media = code in listOf(AndroidKeyEvent.KEYCODE_MEDIA_PLAY, AndroidKeyEvent.KEYCODE_MEDIA_PAUSE,
             AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, AndroidKeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
-            AndroidKeyEvent.KEYCODE_MEDIA_REWIND, AndroidKeyEvent.KEYCODE_MEDIA_STOP)
+            AndroidKeyEvent.KEYCODE_MEDIA_REWIND, AndroidKeyEvent.KEYCODE_MEDIA_STOP, AndroidKeyEvent.KEYCODE_MEDIA_NEXT)
         if (media) {
             if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
                 when (code) {
@@ -99,6 +105,7 @@ internal fun TvWatchControls(video: Video?, state: PlaybackState, related: List<
                     AndroidKeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> if (canSeek) onSeek((state.positionMs + 10_000).coerceAtMost(state.durationMs))
                     AndroidKeyEvent.KEYCODE_MEDIA_REWIND -> if (canSeek) onSeek((state.positionMs - 10_000).coerceAtLeast(0))
                     AndroidKeyEvent.KEYCODE_MEDIA_STOP -> onLeave()
+                    AndroidKeyEvent.KEYCODE_MEDIA_NEXT -> onNext()
                 }
                 activity++
             }
@@ -149,6 +156,13 @@ internal fun TvWatchControls(video: Video?, state: PlaybackState, related: List<
                     }
                 }
                 Spacer(Modifier.height(14.dp))
+                if (next.secondsRemaining != null) Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("Next in ${next.secondsRemaining}s: ${next.video?.title}", maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).testTag("next-countdown"), color = FamilyColors.text)
+                    Button(onClick = onCancelNext, modifier = Modifier.testTag("cancel-next")) { Text("Cancel") }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     Button(onClick = { if (playing) onPause() else onPlay(); activity++ }, enabled = video != null,
                         modifier = Modifier.focusRequester(playFocus).focusProperties { if (canSeek) up = timelineFocus; left = FocusRequester.Cancel }.testTag("transport")) {
@@ -158,6 +172,8 @@ internal fun TvWatchControls(video: Video?, state: PlaybackState, related: List<
                     Button(onClick = { if (canSeek) onSeek((state.positionMs + 10_000).coerceAtMost(state.durationMs)); activity++ }, enabled = canSeek) { Text("+10 sec") }
                     Button(onClick = { preview = null; showingRelated = !showingRelated; activity++ },
                         modifier = Modifier.focusRequester(relatedFocus).testTag("related-button")) { Text("Related") }
+                    Button(onClick = { onNext(); activity++ }, enabled = next.video != null,
+                        modifier = Modifier.testTag("next-video")) { Text("Next") }
                     Button(onClick = onLeave) { Text("Leave video") }
                 }
                 if (showingRelated) {

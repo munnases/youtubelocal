@@ -1,0 +1,42 @@
+name: familytube
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    init: true
+    stop_signal: SIGINT
+    stop_grace_period: 15s
+    ports:
+      - "${FAMILYTUBE_BIND_IP:-0.0.0.0}:${FAMILYTUBE_PORT:-8000}:8000"
+    volumes:
+      - type: bind
+        source: ${FAMILYTUBE_MEDIA_DIR:-/srv/media/kids}
+        target: /media
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: volume
+        source: backend-data
+        target: /data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json, urllib.request; r = urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3); assert json.load(r)['ok']"
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  backend-data:
+    name: ${FAMILYTUBE_DATA_VOLUME:-familytube_backend-data}

@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 from backend.server import RequestHandler, list_videos
 from backend.recommendations import WatchStore
 from backend.catalog_scan import CatalogScanner
+from backend.thumbnail_worker import ThumbnailWorker
 
 
 class MediaServerTest(unittest.TestCase):
@@ -30,13 +31,16 @@ class MediaServerTest(unittest.TestCase):
         )
         self.catalog = self.root / 'catalog.json'
         self.catalog.write_text('[]', encoding='utf-8')
+        self.thumbnail_dir = self.root / 'generated-artwork'
+        self.worker = None
         store = WatchStore(self.root / 'watch.sqlite3')
-        self.scanner = CatalogScanner(store, lambda: list_videos(self.root, self.catalog))
+        self.scanner = CatalogScanner(store, lambda: list_videos(self.root, self.catalog, self.thumbnail_dir))
         self.scanner.scan_once()
         self.scanner.start()
         handler = type('TestHandler', (RequestHandler,), {
             'media_dir': self.root, 'catalog_path': self.catalog,
             'store': store, 'scanner': self.scanner,
+            'thumbnail_dir': self.thumbnail_dir, 'thumbnail_worker': None,
             'log_message': lambda *args: None,
         })
         self.server = ThreadingHTTPServer(('127.0.0.1', 0), handler)
@@ -48,6 +52,8 @@ class MediaServerTest(unittest.TestCase):
         self.server.server_close()
         self.thread.join()
         self.scanner.close()
+        if self.worker:
+            self.worker.close()
         self.directory.cleanup()
 
     def request(self, method, path, headers=None, body=None):
@@ -135,6 +141,55 @@ class MediaServerTest(unittest.TestCase):
                      '/thumbnails/%2e%2e/private.png', '/thumbnails/Channel%20A/Video%20%231%20%F0%9F%8E%AC.mp4'):
             with self.subTest(path=path):
                 self.assertEqual(self.request('GET', path)[0], 404)
+
+    def test_background_thumbnails_publish_without_blocking_requests(self):
+        entered, release = threading.Event(), threading.Event()
+        image = b'\xff\xd8generated-test-image\xff\xd9'
+        def extract(source, destination, seconds):
+            entered.set()
+            if not release.wait(3):
+                raise TimeoutError('Test did not release extraction')
+            destination.write_bytes(image)
+        self.worker = ThumbnailWorker(self.root, self.thumbnail_dir, self.scanner)
+        self.server.RequestHandlerClass.thumbnail_worker = self.worker
+        self.scanner.on_scan = self.worker.request_work
+        headers = {'X-Device-ID': 'test-device-123'}
+        with patch.object(self.worker, '_extract', side_effect=extract):
+            self.worker.start()
+            self.assertEqual(self.request('POST', '/api/thumbnails', headers, '{}')[0], 202)
+            self.assertTrue(entered.wait(2))
+            try:
+                self.assertTrue(json.loads(self.request('GET', '/api/thumbnails')[2])['running'])
+                self.assertEqual(self.request('GET', '/api/health')[0], 200)
+                before = json.loads(self.request('GET', '/api/videos')[2])
+                self.assertTrue(all(video['thumbnailUrl'] is None for video in before))
+                self.assertEqual(self.request('GET', '/media/' + before[0]['id'], {'Range': 'bytes=2-4'})[2], b'234')
+            finally:
+                release.set()
+            with self.worker.condition:
+                self.assertTrue(self.worker.condition.wait_for(
+                    lambda: not self.worker.running and not self.worker.requested, timeout=3))
+        after = json.loads(self.request('GET', '/api/videos')[2])
+        for video in after:
+            self.assertNotIn('thumbnailGenerated', video)
+            url = urlsplit(video['thumbnailUrl'])
+            self.assertTrue(url.path.startswith('/generated-thumbnails/'))
+            status, response_headers, body = self.request('GET', url.path + '?' + url.query)
+            self.assertEqual((status, body), (200, image))
+            self.assertEqual(response_headers['Content-Type'], 'image/jpeg')
+            self.assertEqual(self.request('HEAD', url.path)[2], b'')
+        self.assertEqual(json.loads(self.request('GET', '/api/thumbnails')[2])['generatedCount'], 2)
+
+    def test_generated_thumbnail_routes_are_confined_and_disabled_worker_is_explicit(self):
+        headers = {'X-Device-ID': 'test-device-123'}
+        self.assertEqual(json.loads(self.request('GET', '/api/thumbnails')[2]), {'enabled': False})
+        self.assertEqual(self.request('POST', '/api/thumbnails', headers, '{}')[0], 503)
+        self.assertEqual(self.request('POST', '/api/thumbnails', body='{}')[0], 400)
+        self.thumbnail_dir.mkdir()
+        (self.thumbnail_dir / 'secret.jpg').write_bytes(b'private file')
+        for path in ('/generated-thumbnails/secret.jpg', '/generated-thumbnails/%2e%2e/catalog.json',
+                     '/generated-thumbnails/' + 'a' * 64 + '.jpg', '/generated-thumbnails/foo.png'):
+            self.assertEqual(self.request('GET', path)[0], 404)
 
     def test_watch_and_recommendation_api(self):
         headers = {'X-Device-ID': 'test-device-123', 'Content-Type': 'application/json'}

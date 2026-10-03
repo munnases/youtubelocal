@@ -31,11 +31,11 @@ Compose TV components supply remote-oriented interactions, while ordinary Compos
 
 ## 2. Scope
 
-**First release:** server setup, cached home screen, category browsing, local title search, continue watching, full-screen player, resume, related videos, optional autoplay, TV remote controls, parent settings, and clear offline/error states.
+**First release:** server setup, cached home screen, category browsing, local title search, continue watching, full-screen player, resume, related videos, five-second automatic advance and Next controls, TV remote controls, parent settings, and clear offline/error states.
 
 Keep recommendations simple: use the existing backend suggestions, with a cached category/recently-added fallback. Every suggestion comes from the supplied family library. Adding files to the designated library is a parent action; the existing scanner does not classify whether a video is suitable for children.
 
-Autoplay defaults to off and is parent-controlled. Parent settings include the server address, autoplay, cache limit, and a local PIN gate. The PIN prevents accidental child changes in the UI; it is not server authentication.
+The 2026-10-02 user request enables automatic advance five seconds after a video ends, overriding the earlier autoplay-off default. Phone and TV show the next title, remaining seconds, Cancel, and an immediate Next action. The first cached related item from the same family library is the candidate; a one-item library has no next action. Selecting another video, cancelling, replaying/seeking, leaving watch, or backgrounding cancels the pending countdown. It survives inline/fullscreen and configuration changes with the retained coordinator. Failure never starts a countdown. A future parent preference for autoplay remains part of S7 alongside the server address, cache limit, and local PIN gate. The PIN prevents accidental child changes in the UI; it is not server authentication.
 
 **Later:** a Shorts option for small, short-form videos from the family library, explicit offline downloads, child profiles shared across devices, subtitles when supplied, seek-preview sprites, PiP, multiple quality renditions, and optional server discovery. Shorts is planned after the first release; define its duration/file-size limits, feed layout, and phone/TV navigation during that phase. Reuse the shared playback engine and bounded preloading strategy.
 
@@ -109,7 +109,7 @@ Keep screen features as packages within each app initially: `home`, `search`, `w
 | Home | Top app bar, category chips, large 16:9 cards, bottom Home/Library navigation | Left navigation rail, category rows, large 16:9 cards |
 | Selection | Tap card to play directly | D-pad focus, OK to play directly |
 | Watch | Inline 16:9 player above title and related videos; landscape fullscreen | Fullscreen video with overlays; related row opens on demand |
-| Controls | Center play/pause, double-tap sides for +/-10 seconds, scrubber, fullscreen | Center OK shows controls; focused play/pause toggles; dedicated media keys work |
+| Controls | Center play/pause, double-tap sides for +/-10 seconds, scrubber, Next, fullscreen | Center OK shows controls; focused play/pause toggles; Next and dedicated media keys work |
 | Seek | Drag timeline; commit seek on release | Focus timeline, Left/Right changes preview position, OK commits; Back cancels |
 | Back | Fullscreen to watch; leaving watch saves progress and stops playback | Hide overlay first; next Back returns to catalog and stops playback |
 | Return to catalog | Restore list scroll; playback is stopped | Restore exact card focus and row scroll |
@@ -119,7 +119,7 @@ Use a near-black background, white titles, muted metadata, compact spacing, roun
 
 Keep controls readable over a bottom gradient. Phone touch targets are at least 48 dp. TV controls and labels need larger spacing and physical-device validation at normal viewing distance. Focus should use a border plus modest scale without changing layout geometry. Expose accessible labels, playback state, and scrubber semantics; avoid color-only focus indicators.
 
-Controls hide after approximately three seconds of inactivity while playing. Keep them visible while paused, scrubbing, or showing an error. Any relevant remote interaction reveals controls before moving focus. A dedicated play/pause key always acts immediately. Related rows must never silently take focus during playback.
+Controls hide after approximately three seconds of inactivity while playing. Keep them visible while paused, scrubbing, showing an error, or counting down after completion. Any relevant remote interaction reveals controls before moving focus. A dedicated play/pause key always acts immediately. TV Media Next advances immediately; Back during the countdown cancels it before the usual overlay/leave actions. Related rows must never silently take focus during playback.
 
 ```text
 PHONE HOME                       TV HOME
@@ -185,7 +185,7 @@ The current library contains MP4 and WebM. Container extension does not prove ha
 
 For a predictable initial device matrix, prepare H.264 8-bit SDR + AAC MP4, up to 1080p with a 720p option for weaker devices if required. Select codec profile/level and bitrate from measured device support. Put the MP4 index (`moov`) at the beginning for fast startup. Use roughly two-second keyframe spacing as an initial encoding choice for seeking. Remux only when codecs already match; otherwise transcode once on the server before publication.
 
-Generate thumbnails and duration during import. Write prepared files to a temporary location, then publish atomically when complete. Preserve original files. Never transcode in response to a child's Play action. The existing scanner is not a transcoding pipeline; this preparation is proposed work.
+The backend now generates missing thumbnails in one background FFmpeg worker after successful catalog scans. It preserves supplied artwork and publishes completed 640x360 JPEGs atomically in a writable directory beside the database, keeping the media mount read-only. Generated keys include the source path and filesystem version; each finished image is published immediately to the cached catalog. Existing apps receive the populated `thumbnailUrl` on their next refresh. See [backend worker behavior](../backend/README.md#missing-thumbnail-worker). Duration extraction and compatible playback preparation remain proposed work; never transcode in response to a child's Play action.
 
 Start with one compatible progressive rendition. HLS is a later option if variable network conditions demonstrate a need for adaptive quality. A quality menu only appears when real alternate renditions exist.
 
@@ -244,6 +244,8 @@ The following routes were checked in `../backend/server.py`; this is an integrat
 | `GET /api/videos` | Full catalog snapshot for Room |
 | `GET /media/{id}` | Stream/seek; server supports byte ranges and 206 responses |
 | `GET /thumbnails/{path}?v=...` | Versioned thumbnail loading |
+| `GET /generated-thumbnails/{hash}.jpg?v=...` | Generated artwork through the existing catalog `thumbnailUrl` |
+| `GET /api/thumbnails`, `POST /api/thumbnails` | Worker status and manual retry; no Android controls added in this increment |
 | `GET /api/watch/history` | Fetch per-device progress |
 | `POST /api/watch` | Send durable playback progress snapshots |
 | `GET /api/recommendations` | Optional server ordering; local fallback if unavailable |
@@ -279,7 +281,7 @@ S3 implements these behaviors through the model's `ProgressStore` boundary. An a
 Proposed backend extensions, separate from existing behavior:
 
 - Stable `serverId`, content version, MIME type, codec information, and optional rendition list.
-- Offline preparation of thumbnails, durations, and compatible playback files.
+- Duration extraction and compatible playback preparation (background missing-thumbnail generation is implemented).
 - Optional catalog version/ETag for efficient refresh.
 - Server authentication and shared profiles only if those capabilities are later requested.
 
@@ -330,6 +332,8 @@ Add targeted tests for API unit conversion, progress event sequencing, cache ide
 
 ## 11. Delivery order
 
+The root [Compose configuration](../compose.yaml) and [backend usage guide](../backend/README.md#docker-compose) provide a reproducible container setup with read-only media and a persistent data volume. [Production APK instructions](docs/PRODUCTION_BUILD.md) cover the existing unsigned release variants and signing with an external private key. These packaging/documentation additions do not complete S6-S8 acceptance; live deployment and production signing remain operator actions.
+
 The detailed [execution plan](EXECUTION_PLAN.md) expands these milestones into stages with dependencies, completion checks, and a progress tracker. See the repository [agent instructions](../AGENTS.md) for implementation rules.
 
 1. **Playback proof:** scaffold the shared Kotlin project and both launchers; connect to the existing API; play and seek on the real phone and TV. Inspect representative MP4/WebM files and settle the compatible import format. Exit when both devices reliably decode the selected rendition.
@@ -342,3 +346,5 @@ The detailed [execution plan](EXECUTION_PLAN.md) expands these milestones into s
 The implementation uses typed catalog/history/watch DTOs, Room catalog/progress/outbox tables, DataStore installation/settings identity, and an Activity-retained playback ViewModel with one ExoPlayer/MediaSession per app session. S4 implements phone Home/Library, local search/category chips, thumbnail cards, continue watching, cached related items, inline/landscape fullscreen, double-tap seek, release-only scrubbing, and controls timeout. Scroll states live above screen navigation, and a stable watch host changes surface bounds without resetting the media item. Position ticks update the controls independently from the surface and related list. Phone artwork uses one application-owned Coil loader sharing the redirect-restricted HTTP pool; bitmap sizing follows card constraints. Physical resize/focus/accessibility checks remain pending.
 
 S5 implements TV Material navigation, category/poster rows, local search and continue watching. Row scroll states and selected card IDs live above the watch route and use saveable state. Library initialization and first-focus restoration run sequentially; subsequent progress/catalog updates do not request focus. Text fields handle pre-IME and ordinary D-pad events and explicitly dismiss the keyboard when leaving the field. The watch overlay has a three-second playing timeout, remote reveal, confirmed/cancelable timeline preview, on-demand related items and immediate media-key callbacks. Back cancels preview, closes related items, hides the overlay and then saves/stops playback. TV artwork uses its own single application Coil loader with the shared HTTP pool. Media byte caching, preloading, parent controls, and release validation remain in later stages. Builds, tests, and emulator journeys are recorded in the execution plan and S3/S4/S5 reports. Physical-device performance and family-media compatibility remain unverified.
+
+The Next-video increment retains countdown ownership in the coordinator, independent of either Compose screen. A separate StateFlow updates only the countdown controls. Both apps follow automatic coordinator selections while preserving the original browse return position. See [Next-video verification](docs/NEXT_VIDEO_VERIFICATION.md) for phone/TV results and the unresolved TV EOF-index MP4 range issue; prepared faststart media passed the full TV journey.

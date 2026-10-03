@@ -1,2 +1,7 @@
 media
 __pycache__/
+backend/data/thumbnails/
+backend/backend/data/thumbnails/
+.env
+*.jks
+*.keystore

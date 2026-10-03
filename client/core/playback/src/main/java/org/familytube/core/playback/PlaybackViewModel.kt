@@ -13,6 +13,7 @@ import org.familytube.core.model.Video
 class PlaybackViewModel @Inject constructor(private val coordinator: PlaybackCoordinator) : ViewModel() {
     val state = coordinator.state
     val player = coordinator.player
+    val nextState = coordinator.nextState
     private var positionJob: Job? = null
 
     fun play(video: Video) {
@@ -27,6 +28,9 @@ class PlaybackViewModel @Inject constructor(private val coordinator: PlaybackCoo
 
     fun pause() = coordinator.pause()
     fun seekTo(positionMs: Long) = coordinator.seekTo(positionMs)
+    fun setNextCandidates(video: Video, candidates: List<Video>) = coordinator.setNextCandidates(video, candidates)
+    fun playNext() { coordinator.playNext(); startPositionUpdates() }
+    fun cancelNext() = coordinator.cancelNext()
 
     fun stop() {
         positionJob?.cancel()

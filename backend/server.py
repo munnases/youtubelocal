@@ -12,9 +12,11 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 if __package__:
     from .recommendations import WatchStore
     from .catalog_scan import CatalogScanner
+    from .thumbnail_worker import ThumbnailWorker, THUMBNAIL_TYPES, find_thumbnail
 else:
     from recommendations import WatchStore
     from catalog_scan import CatalogScanner
+    from thumbnail_worker import ThumbnailWorker, THUMBNAIL_TYPES, find_thumbnail
 
 PALETTES = [
     ["#6C63FF", "#9B8AFB"],
@@ -25,8 +27,6 @@ PALETTES = [
     ["#FDCB6E", "#F39C12"],
 ]
 VIDEO_SUFFIXES = {".mp4", ".m4v", ".mov", ".webm"}
-THUMBNAIL_TYPES = {'.webp': 'image/webp', '.jpg': 'image/jpeg',
-                   '.jpeg': 'image/jpeg', '.png': 'image/png'}
 
 
 def load_catalog(path):
@@ -39,7 +39,7 @@ def load_catalog(path):
     return {item.get("file"): item for item in items if item.get("file")}
 
 
-def list_videos(media_dir, catalog_path):
+def list_videos(media_dir, catalog_path, thumbnail_dir=None):
     if not media_dir.is_dir():
         raise OSError('The media folder is unavailable.')
     catalog = load_catalog(catalog_path)
@@ -67,9 +67,7 @@ def list_videos(media_dir, catalog_path):
         )
         palette = PALETTES[len(videos) % len(PALETTES)]
         file_stat = path.stat()
-        thumbnail = next((path.with_suffix(suffix) for suffix in THUMBNAIL_TYPES
-                          if path.with_suffix(suffix).is_file()
-                          and path.with_suffix(suffix).resolve().is_relative_to(media_dir.resolve())), None)
+        artwork = find_thumbnail(media_dir, path, thumbnail_dir)
         videos.append(
             {
                 "id": video_id,
@@ -79,8 +77,7 @@ def list_videos(media_dir, catalog_path):
                 "duration": metadata.get("duration", 0),
                 "file": relative_path,
                 "addedAt": int(getattr(file_stat, 'st_birthtime', file_stat.st_mtime) * 1000),
-                "thumbnailFile": thumbnail.relative_to(media_dir).as_posix() if thumbnail else None,
-                "thumbnailVersion": str(thumbnail.stat().st_mtime_ns) if thumbnail else None,
+                **artwork,
                 "accent": metadata.get("accent", palette),
                 "age": metadata.get("age", "Family friendly"),
             }
@@ -93,6 +90,8 @@ class RequestHandler(BaseHTTPRequestHandler):
     catalog_path = Path("backend/catalog.json")
     store = None
     scanner = None
+    thumbnail_worker = None
+    thumbnail_dir = None
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -123,12 +122,14 @@ class RequestHandler(BaseHTTPRequestHandler):
             video['streamUrl'] = f"http://{host}/media/{quote(str(video['id']), safe='')}"
             thumbnail = video.pop('thumbnailFile')
             version = video.pop('thumbnailVersion')
-            video['thumbnailUrl'] = f"http://{host}/thumbnails/{quote(thumbnail, safe='/')}?v={version}" if thumbnail else None
+            generated = video.pop('thumbnailGenerated', False)
+            route = 'generated-thumbnails' if generated else 'thumbnails'
+            video['thumbnailUrl'] = f"http://{host}/{route}/{quote(thumbnail, safe='/')}?v={version}" if thumbnail else None
         return videos
 
     def do_POST(self):
         path = urlparse(self.path).path
-        if path not in ('/api/watch', '/api/watch/import', '/api/scan', '/api/scan/settings'):
+        if path not in ('/api/watch', '/api/watch/import', '/api/scan', '/api/scan/settings', '/api/thumbnails'):
             self.send_json({'error': 'Not found'}, 404)
             return
         try:
@@ -140,6 +141,12 @@ class RequestHandler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length))
             if not isinstance(body, dict):
                 raise ValueError('Expected a JSON object.')
+            if path == '/api/thumbnails':
+                if self.thumbnail_worker is None:
+                    self.send_json({'error': 'Thumbnail worker is disabled.'}, 503)
+                else:
+                    self.send_json(self.thumbnail_worker.request_work(), 202)
+                return
             if path == '/api/scan':
                 self.send_json(self.scanner.request_scan(), 202)
                 return
@@ -195,6 +202,9 @@ class RequestHandler(BaseHTTPRequestHandler):
         if path == '/api/scan':
             self.send_json(self.scanner.status())
             return
+        if path == '/api/thumbnails':
+            self.send_json(self.thumbnail_worker.status() if self.thumbnail_worker else {'enabled': False})
+            return
         if path == "/api/videos":
             self.send_json(self.public_videos())
             return
@@ -224,6 +234,13 @@ class RequestHandler(BaseHTTPRequestHandler):
         if path.startswith('/thumbnails/'):
             self.serve_thumbnail(path.removeprefix('/thumbnails/'), send_body)
             return
+        if path.startswith('/generated-thumbnails/'):
+            name = path.removeprefix('/generated-thumbnails/')
+            if self.thumbnail_dir is None or not re.fullmatch(r'[a-f0-9]{64}\.jpg', name):
+                self.send_error(404)
+            else:
+                self.serve_thumbnail(name, send_body, self.thumbnail_dir)
+            return
         if path.startswith("/media/"):
             self.stream_video(path.removeprefix("/media/"), send_body)
             return
@@ -240,10 +257,11 @@ class RequestHandler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
-    def serve_thumbnail(self, relative_path, send_body):
+    def serve_thumbnail(self, relative_path, send_body, root=None):
+        root = self.media_dir if root is None else root
         try:
-            path = (self.media_dir / relative_path).resolve()
-            if (not path.is_relative_to(self.media_dir.resolve())
+            path = (root / relative_path).resolve()
+            if (not path.is_relative_to(root.resolve())
                     or path.suffix.lower() not in THUMBNAIL_TYPES or not path.is_file()):
                 self.send_error(404)
                 return
@@ -348,6 +366,10 @@ def main():
                         default=Path('backend/data/familytube.sqlite3'))
     parser.add_argument('--scan-interval-minutes', type=int, default=None,
                         help='Override and save the scan interval: 0 disables periodic scans, 1-10080 sets minutes. Default: saved value or 15.')
+    parser.add_argument('--thumbnail-dir', type=Path, default=None,
+                        help='Writable generated artwork directory. Default: thumbnails beside the watch database.')
+    parser.add_argument('--ffmpeg', default='ffmpeg', help='FFmpeg executable name or path.')
+    parser.add_argument('--no-thumbnail-worker', action='store_true', help='Disable automatic thumbnail generation.')
     args = parser.parse_args()
     if args.scan_interval_minutes is not None and not 0 <= args.scan_interval_minutes <= 10080:
         parser.error('--scan-interval-minutes must be between 0 and 10080')
@@ -355,21 +377,31 @@ def main():
     RequestHandler.media_dir = args.media.resolve()
     RequestHandler.catalog_path = args.catalog.resolve()
     RequestHandler.store = WatchStore(args.db.resolve())
+    RequestHandler.thumbnail_dir = (args.thumbnail_dir or args.db.resolve().parent / 'thumbnails').resolve()
     RequestHandler.scanner = CatalogScanner(RequestHandler.store, lambda: list_videos(
-        RequestHandler.media_dir, RequestHandler.catalog_path))
+        RequestHandler.media_dir, RequestHandler.catalog_path, RequestHandler.thumbnail_dir))
+    RequestHandler.thumbnail_worker = None
+    if not args.no_thumbnail_worker:
+        RequestHandler.thumbnail_worker = ThumbnailWorker(RequestHandler.media_dir,
+            RequestHandler.thumbnail_dir, RequestHandler.scanner, ffmpeg=args.ffmpeg)
+        RequestHandler.scanner.on_scan = RequestHandler.thumbnail_worker.request_work
     if args.scan_interval_minutes is not None:
         RequestHandler.scanner.set_interval(args.scan_interval_minutes)
-    RequestHandler.scanner.scan_once()
-    RequestHandler.scanner.start()
     server = ThreadingHTTPServer((args.host, args.port), RequestHandler)
     print(
         f"FamilyTube is serving {RequestHandler.media_dir} at http://{args.host}:{args.port}")
     try:
+        RequestHandler.scanner.scan_once()
+        RequestHandler.scanner.start()
+        if RequestHandler.thumbnail_worker:
+            RequestHandler.thumbnail_worker.start()
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         RequestHandler.scanner.close()
+        if RequestHandler.thumbnail_worker:
+            RequestHandler.thumbnail_worker.close()
         server.server_close()
 
 

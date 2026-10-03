@@ -19,7 +19,7 @@ The current Android client is a design, not an implemented application. Verify r
 - Aim for familiar YouTube-style browsing and controls with FamilyTube branding, fast feedback, and smooth playback.
 - Do not implement an in-app mini-player. Leaving watch saves progress and stops playback; switching inline/fullscreen preserves playback.
 - Shorts is a later phase for small, short-form videos. Do not add Shorts UI, feeds, or content restrictions to the first release.
-- Autoplay defaults to off. Keep parent-controlled settings behind the local PIN gate.
+- Per the latest request, advance to the next family-library video five seconds after completion, with cancellation and immediate Next controls. Keep future parent-controlled settings behind the local PIN gate.
 - Recommendations and search only use the supplied family library. Do not add public video discovery, accounts, ads, or tracking services.
 - Offline downloads, shared child profiles, PiP, casting, and adaptive streaming are outside the first release.
 

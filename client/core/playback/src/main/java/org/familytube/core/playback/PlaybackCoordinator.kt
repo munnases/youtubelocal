@@ -46,6 +46,8 @@ class PlaybackCoordinator @Inject constructor(@ApplicationContext private val co
     private var watchSession: WatchSession? = null
     private var lastSavedMs = 0L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val nextVideo = NextVideoController(scope, ::play)
+    val nextState = nextVideo.state
     private var selectionJob: Job? = null
     private var switching = false
 
@@ -76,6 +78,7 @@ class PlaybackCoordinator @Inject constructor(@ApplicationContext private val co
                     phase = PlaybackPhase.FAILED,
                     error = error.localizedMessage ?: "This video could not be played",
                 )
+                nextVideo.updatePlayback(mutableState.value.video, false)
                 Log.e("FamilyTubePlayback", "Playback failed for selected video", error)
                 persistProgress()
             }
@@ -107,6 +110,7 @@ class PlaybackCoordinator @Inject constructor(@ApplicationContext private val co
         val token = ++selection
         startedAtMs = SystemClock.elapsedRealtime()
         mutableState.value = PlaybackState(video = video, phase = PlaybackPhase.PREPARING)
+        nextVideo.updatePlayback(video, false)
         selectionJob = scope.launch {
             val position = persistence.position(video)
             if (token != selection) return@launch
@@ -130,6 +134,7 @@ class PlaybackCoordinator @Inject constructor(@ApplicationContext private val co
     }
 
     fun resume() {
+        nextVideo.cancel()
         val video = mutableState.value.video ?: return
         if (exoPlayer == null) {
             if (selectionJob?.isActive == true) return
@@ -148,11 +153,13 @@ class PlaybackCoordinator @Inject constructor(@ApplicationContext private val co
     }
 
     fun pause() {
+        nextVideo.cancel()
         exoPlayer?.pause()
         samplePosition()
     }
 
     fun seekTo(positionMs: Long) {
+        nextVideo.cancel()
         exoPlayer?.seekTo(positionMs.coerceAtLeast(0))
         samplePosition()
     }
@@ -181,6 +188,7 @@ class PlaybackCoordinator @Inject constructor(@ApplicationContext private val co
     }
 
     fun stop() {
+        nextVideo.reset()
         samplePosition()
         persistProgress()
         selectionJob?.cancel()
@@ -194,6 +202,7 @@ class PlaybackCoordinator @Inject constructor(@ApplicationContext private val co
 
     /** A non-configuration background transition releases decoder/network resources. */
     fun releaseForBackground() {
+        nextVideo.cancel()
         pause()
         persistProgress()
         selectionJob?.cancel()
@@ -209,6 +218,7 @@ class PlaybackCoordinator @Inject constructor(@ApplicationContext private val co
     }
 
     fun release() {
+        nextVideo.reset()
         samplePosition()
         persistProgress()
         scope.cancel()
@@ -231,6 +241,11 @@ class PlaybackCoordinator @Inject constructor(@ApplicationContext private val co
             else -> PlaybackPhase.PREPARING
         }
         mutableState.value = mutableState.value.copy(phase = phase)
+        nextVideo.updatePlayback(mutableState.value.video, phase == PlaybackPhase.ENDED)
         samplePosition()
     }
+
+    fun setNextCandidates(video: Video, candidates: List<Video>) = nextVideo.setCandidates(video, candidates)
+    fun playNext() = nextVideo.playNext()
+    fun cancelNext() = nextVideo.cancel()
 }

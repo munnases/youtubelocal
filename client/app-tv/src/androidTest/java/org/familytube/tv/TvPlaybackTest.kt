@@ -83,6 +83,27 @@ class TvPlaybackTest {
             key(Key.DirectionCenter)
             compose.waitUntil(20_000) { playback.state.value.video?.id != selectedId && playback.state.value.phase == PlaybackPhase.PLAYING }
             compose.runOnIdle { assertSame(player, playback.player.value) }
+            compose.waitUntil(5_000) { playback.nextState.value.video != null }
+            val relatedId = playback.state.value.video!!.id
+            compose.runOnIdle { playback.seekTo(playback.state.value.durationMs) }
+            compose.waitUntil(10_000) { playback.nextState.value.secondsRemaining != null }
+            compose.onNodeWithTag("next-countdown").assertIsDisplayed()
+            back()
+            val cancelledAt = android.os.SystemClock.elapsedRealtime()
+            compose.waitUntil(7_000) { android.os.SystemClock.elapsedRealtime() - cancelledAt >= 5_500 }
+            compose.runOnIdle { assertEquals(relatedId, playback.state.value.video!!.id) }
+            key(Key.MediaPlay)
+            compose.waitUntil(10_000) { playback.state.value.phase == PlaybackPhase.PLAYING }
+            val automatic = playback.nextState.value.video!!
+            compose.runOnIdle { playback.seekTo(playback.state.value.durationMs) }
+            compose.waitUntil(10_000) { playback.nextState.value.secondsRemaining != null }
+            compose.waitUntil(15_000) { playback.state.value.video?.id == automatic.id && playback.state.value.phase == PlaybackPhase.PLAYING }
+            compose.onNodeWithText(automatic.title).assertExists()
+            compose.runOnIdle { assertSame(player, playback.player.value) }
+            compose.waitUntil(5_000) { playback.nextState.value.video != null }
+            val immediateId = playback.nextState.value.video!!.id
+            key(Key.MediaNext)
+            compose.waitUntil(20_000) { playback.state.value.video?.id == immediateId && playback.state.value.phase == PlaybackPhase.PLAYING }
             key(Key.MediaStop)
             compose.waitUntil(5_000) { playback.state.value.video == null }
             compose.onNodeWithTag(selected).assertIsFocused()

@@ -22,7 +22,7 @@ internal fun ServerSetup(settings: ServerSettingsRepository, healthChecker: Serv
         Text("FamilyTube", style = MaterialTheme.typography.headlineLarge, color = FamilyColors.text)
         Spacer(Modifier.height(16.dp))
         OutlinedTextField(draft, onValueChange = { draft = it; edited = true },
-            label = { Text("Server address") }, placeholder = { Text("http://192.168.1.10:8000") },
+            label = { Text("Server address") }, placeholder = { Text("http://192.168.1.161:8001") },
             singleLine = true, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(16.dp))
         Button(onClick = {

@@ -65,12 +65,15 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(state.settingsLoaded, state.serverUrl) {
                     if (state.settingsLoaded && state.serverUrl.isBlank()) showSettings = true
                 }
-                val video = state.allVideos.firstOrNull { it.id == watchId }
+                LaunchedEffect(playbackVideo) {
+                    if (watchId != null && playbackVideo?.libraryId == watchLibraryId) watchId = playbackVideo?.id
+                }
+                val video = playbackVideo?.takeIf { watchId != null && it.libraryId == watchLibraryId }
+                    ?: state.allVideos.firstOrNull { it.id == watchId }
                     ?: playbackVideo?.takeIf { it.id == watchId && it.libraryId == watchLibraryId }
-                var related by remember { mutableStateOf<List<Video>>(emptyList()) }
+                var related by remember(video?.libraryId, video?.id) { mutableStateOf<List<Video>>(emptyList()) }
                 LaunchedEffect(video, state.allVideos) {
-                    related = emptyList()
-                    if (video != null) related = catalog.related(video)
+                    related = if (video != null) catalog.related(video) else emptyList()
                 }
                 fun select(selected: Video) {
                     watchId = selected.id; watchLibraryId = selected.libraryId

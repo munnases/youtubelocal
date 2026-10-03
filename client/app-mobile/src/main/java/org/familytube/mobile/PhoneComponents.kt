@@ -21,7 +21,7 @@ import coil3.compose.AsyncImage
 import org.familytube.core.designsystem.FamilyColors
 import org.familytube.core.model.Video
 
-internal enum class Glyph { PLAY, PAUSE, BACK, SEARCH, SERVER, HOME, LIBRARY, EXPAND, COLLAPSE, REWIND, FORWARD, REFRESH, CLOSE }
+internal enum class Glyph { PLAY, PAUSE, BACK, SEARCH, SERVER, HOME, LIBRARY, EXPAND, COLLAPSE, REWIND, FORWARD, NEXT, REFRESH, CLOSE }
 
 @Composable
 internal fun FamilyIcon(glyph: Glyph, modifier: Modifier = Modifier, color: Color = FamilyColors.text) {
@@ -65,6 +65,7 @@ internal fun FamilyIcon(glyph: Glyph, modifier: Modifier = Modifier, color: Colo
             }
             Glyph.REWIND -> { polygon(12f, 5f, 2f, 12f, 12f, 19f); polygon(22f, 5f, 12f, 12f, 22f, 19f) }
             Glyph.FORWARD -> { polygon(2f, 5f, 12f, 12f, 2f, 19f); polygon(12f, 5f, 22f, 12f, 12f, 19f) }
+            Glyph.NEXT -> { polygon(4f, 5f, 17f, 12f, 4f, 19f); line(20f, 5f, 20f, 19f) }
             Glyph.REFRESH -> {
                 drawArc(color, 35f, 290f, false, Offset(4 * unit, 4 * unit), androidx.compose.ui.geometry.Size(16 * unit, 16 * unit), style = Stroke(2 * unit))
                 polygon(22f, 4f, 22f, 12f, 14f, 9f)

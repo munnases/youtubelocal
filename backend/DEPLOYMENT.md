@@ -1,6 +1,6 @@
 # Debian Docker deployment
 
-The backend is deployed at `http://192.168.10.151:8000` from `/home/debian/familytube`.
+The recorded home deployment uses `http://192.168.10.151:8000` from `/home/debian/familytube`. This guide does not verify or update that host.
 Set this address in **FamilyTube > Settings > Video server > Save and connect** on each device.
 The existing APK can use this server without a rebuild.
 
@@ -8,12 +8,15 @@ The existing APK can use this server without a rebuild.
 
 - `/srv/media/kids` on the host is mounted read-only at `/media`. Put new videos and their matching thumbnail/metadata files here, including in subfolders.
 - Docker volume `familytube_backend-data` holds `/data/familytube.sqlite3`, including each device's watch history, suggestions, and scan settings.
+- Generated thumbnails are stored in `/data/thumbnails` in that same volume. The image includes FFmpeg; a single background worker fills missing artwork after startup and successful scans. Supplied thumbnails remain preferred and `/media` stays read-only. See [worker behavior and API](README.md#missing-thumbnail-worker).
 - Scanning defaults to every 15 minutes, also runs at startup, and can be changed or triggered in the app's **Library scanning** settings.
 - The container runs as UID/GID `10001:10001`. Media files must be readable and their directories traversable by this user; media ownership does not need to change.
 
 ## Start or update
 
-Copy `compose.yaml`, `.dockerignore`, and the Dockerfile/Python files/catalog from `backend/` to the deployment directory, keeping that folder structure. The media directory must already exist.
+Use the root [compose.yaml](../compose.yaml), [.dockerignore](../.dockerignore), and [.env.example](../.env.example), with `backend/` containing its Dockerfile, `server.py`, `recommendations.py`, `catalog_scan.py`, `thumbnail_worker.py`, and `catalog.json`. You can copy these files to `/home/debian/familytube` while keeping this layout; the Android source/build output is unnecessary on the backend host. Install Docker Engine and the Compose plugin, and ensure the media directory already exists.
+
+For a new deployment, copy `.env.example` to `.env`, set `FAMILYTUBE_MEDIA_DIR` to the host library, and choose the bind IP/port. For an existing deployment, preserve its `.env` and data volume; the default `FAMILYTUBE_DATA_VOLUME=familytube_backend-data` matches the recorded volume. Changing that name selects a different data store. See [Compose configuration](README.md#docker-compose) for all settings.
 
 ```bash
 cd /home/debian/familytube
@@ -23,9 +26,12 @@ docker compose up -d
 docker compose ps
 curl --fail http://127.0.0.1:8000/api/health
 curl --fail http://127.0.0.1:8000/api/scan
+curl --fail http://127.0.0.1:8000/api/thumbnails
 ```
 
 The restart policy starts the service again after a crash or Docker/host restart, unless it was explicitly stopped. Docker must be enabled at boot. Normal image rebuilds and container replacement retain the data volume. Do not use `docker compose down -v` unless intentionally deleting all watch history and settings.
+
+Include `backend/thumbnail_worker.py` when copying the Python files, and rebuild the image to install FFmpeg. This is a compatible update with no database-schema migration or client rebuild. Worker counts reset at restart; generated files persist. Refresh the clients' libraries after the worker finishes. These are deployment instructions; the thumbnail increment has not been deployed to the home server.
 
 ```bash
 docker compose logs --tail=100 backend

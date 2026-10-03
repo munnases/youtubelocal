@@ -20,6 +20,21 @@ import org.junit.Rule
 import org.junit.Test
 
 class PhoneExperienceTest {
+    @Test fun nextAndCountdownActionsAreAccessibleAndUnavailableNextIsDisabled() {
+        var next by mutableStateOf(org.familytube.core.playback.NextVideoState(video.copy(id = "b", title = "Next story"), 5))
+        var skips = 0
+        var cancellations = 0
+        compose.setContent { FamilyTheme {
+            PhoneControls(PlaybackState(video, PlaybackPhase.ENDED, 100_000, 100_000), video, false,
+                {}, {}, {}, {}, next, { skips++ }, { cancellations++; next = next.copy(secondsRemaining = null) })
+        } }
+        compose.onNodeWithTag("next-countdown").assertIsDisplayed()
+        compose.onNodeWithTag("cancel-next").performClick()
+        compose.onNodeWithTag("next-countdown").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Next video").performClick()
+        compose.runOnIdle { assertEquals(1, skips); assertEquals(1, cancellations); next = org.familytube.core.playback.NextVideoState() }
+        compose.onNodeWithContentDescription("Next video").assertIsNotEnabled()
+    }
     @get:Rule val compose = createComposeRule()
     private val video = Video("a", "Family story", "Stories", 100.0, "http://127.0.0.1/a", null)
 

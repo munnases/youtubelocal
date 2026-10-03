@@ -1,0 +1,9 @@
+# Send only the backend runtime files to the image build.
+**
+!backend/
+!backend/Dockerfile
+!backend/server.py
+!backend/recommendations.py
+!backend/catalog_scan.py
+!backend/thumbnail_worker.py
+!backend/catalog.json

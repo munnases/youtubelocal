@@ -1,12 +1,14 @@
 # FamilyTube execution plan
 
-Status: S0/S1 scaffolded; S2 playback checked on phone and Google TV emulators; S3, S4 and S5 implemented and verified for the current emulator scope. Physical-device/media checks are deferred at the user's request.
+Status: S0/S1 scaffolded; S2 playback checked on phone and Google TV emulators; S3, S4 and S5 implemented and verified for the current emulator scope. Next-video controls and five-second automatic advance are implemented and emulator-verified. Physical-device/media checks are deferred at the user's request.
 
 This plan implements [the architecture](ARCHITECTURE.md). Repository-wide [agent instructions](../AGENTS.md) define how to execute and report the work.
 
 ## Scope and execution order
 
-First release: native Kotlin phone and TV apps, home-server streaming, familiar YouTube-style browsing/player controls, cached catalog, resume, recommendations, optional autoplay, and parent settings. There is no in-app mini-player. Leaving watch saves progress and stops playback.
+First release: native Kotlin phone and TV apps, home-server streaming, familiar YouTube-style browsing/player controls, cached catalog, resume, recommendations, five-second automatic next-video playback, and parent settings. There is no in-app mini-player. Leaving watch saves progress and stops playback.
+
+The 2026-10-02 Next-video request brings the shared advance policy and phone/TV controls forward as a bounded increment after S4/S5. It does not depend on S6 caching. Autoplay is enabled by this request; its future PIN-gated preference remains S7 work.
 
 Shorts for small, short-form videos is planned after the first release. Offline downloads, shared profiles, PiP, and other optional features remain separate follow-up work.
 
@@ -29,6 +31,10 @@ flowchart LR
 Phone and TV UI stages can be developed independently after shared contracts stabilize. This dependency diagram does not require multiple agents. Family-control and recovery work may start earlier where it does not depend on unfinished playback changes.
 
 ## Stage tracker
+
+Compose and production-build documentation increment (2026-10-03): **Complete** for the requested configuration and instructions. Local Compose startup/restart and release build/lint/alignment checks passed. Production signing, device release acceptance and home-server deployment remain pending operator actions; S6-S8 implementation is unchanged.
+
+Backend thumbnail increment (2026-10-02): **Complete** for the authorized local implementation and verification scope. Automatic background generation fills missing artwork, preserving supplied sidecars and the read-only media mount. Windows and Linux/Docker checks passed with isolated fixtures; home-server deployment and NAS contention/full-library checks remain pending. This independent backend scope does not start S6 or change Android behavior.
 
 Use `Not started`, `In progress`, `Verification pending`, `Blocked`, `Complete`, or `Deferred`. Record the exact missing prerequisite for a blocked stage. Do not mark a stage complete when its hardware checks remain pending.
 
@@ -150,7 +156,7 @@ Use `Not started`, `In progress`, `Verification pending`, `Blocked`, `Complete`,
 
 **Work**
 
-- Complete PIN-gated settings for server address, autoplay (off by default), cache quota, and existing scan controls.
+- Complete PIN-gated settings for server address, autoplay (enabled by the 2026-10-02 request), cache quota, and existing scan controls. Retain the implemented five-second countdown and cancellation policy.
 - Define local PIN setup, retry throttling, and parent recovery without claiming server-side authentication.
 - Handle permission denial, Wi-Fi without internet, server downtime, removed/replaced media, unsupported codecs, missing artwork, and disk pressure.
 - Use capped retries; preserve progress and present actionable retry/settings states.
@@ -158,7 +164,7 @@ Use `Not started`, `In progress`, `Verification pending`, `Blocked`, `Complete`,
 
 **Deliverables:** finished family settings and a failure/recovery checklist with results.
 
-**Exit checks:** child-facing settings cannot accidentally change parent options; autoplay remains off until enabled; recovery scenarios preserve progress; unavailable media does not cause infinite retries; phone and TV continue to browse their cached library without internet.
+**Exit checks:** child-facing settings cannot accidentally change parent options; disabling autoplay prevents automatic advance and enabling it preserves the five-second countdown; recovery scenarios preserve progress; unavailable media does not cause infinite retries; phone and TV continue to browse their cached library without internet.
 
 ## S8 - Validate and package the first release
 
@@ -190,6 +196,37 @@ Use `Not started`, `In progress`, `Verification pending`, `Blocked`, `Complete`,
 **Exit checks:** quick navigation has no overlapping audio, unbounded preload growth, or stale selection takeover; only parent-supplied library content appears; Back saves/stops as specified; first-release regular-video journeys still pass. Add Shorts-specific device performance evidence.
 
 ## Progress record
+
+### 2026-10-03 - Backend Compose and production APK guide completed
+
+- **Documentation clarification:** Expanded the private-key step with its purpose, numbered Windows instructions, explicit PKCS12 format/certificate name, a guard for an existing keystore, hidden-password prompts, key inspection and the exact path/alias used for signing. All six PowerShell examples parse and `git diff --check` passed. This was documentation-only; no key was generated. Production signing remains the next operator action.
+- **Changed areas:** Root Compose service, `.env.example`, Docker build-context allowlist and setup README; backend configuration/update/backup guidance; client production-build guide covering the Java 25 daemon, SDK, unsigned phone/TV release variants, external signing keys, signing/alignment/verification, versioning and debug-to-release installation behavior. Existing Docker data volume name is preserved. No Android or backend runtime source changed in this increment.
+- **Checks/results:** `docker compose config --quiet` and `docker compose build backend` passed. An isolated Compose project on localhost port 18080 with a new fixture-only volume reached healthy state. It served two fixture videos and generated JPEGs, recorded a watch event, and preserved that history and generated artwork across restart; cache reuse generated no duplicate images. Container UID 10001 and SQLite/artwork paths were verified. Stop via SIGINT exited with code 0; the fixture-only containers/network/volume were removed. The actual home server and existing data volumes were not updated.
+- **Client evidence:** Checked-in wrapper `:app-mobile:assembleRelease :app-tv:assembleRelease :app-mobile:lintRelease :app-tv:lintRelease` passed using JBR 25 and SDK 37/build tools 36. Both documented unsigned APKs exist. Lint: zero errors, 14 phone and three TV warnings. Manifest inspection confirmed package/version/SDK values and non-debuggable release output. `zipalign -P 16` and verification passed for both. An initial sandboxed Gradle invocation could not write the app directory; the approved local toolchain invocation passed. No signing secrets were requested or created.
+- **Limits/next:** Operator signs with the existing/private production key, verifies/installs on the actual phone and TV, and deploys Compose when requested. Debug and production keys require an explicit installation transition with local-data consequences; the guide documents it. These packaging checks do not satisfy the pending hardware/media/performance acceptance or complete S8. S6 remains the next unstarted implementation stage. Existing unrelated source/database work was preserved.
+
+### 2026-10-02 - Backend missing-thumbnail worker completed
+
+- **Changed areas:** Single coalescing FFmpeg worker triggered by successful startup/manual/scheduled scans; supplied-poster preference; stat-versioned 640x360 JPEG output under the database's writable `thumbnails/` directory; atomic publication and immediate persistent catalog updates; status/manual retry API; configurable executable/output path and disable flag. Docker installs FFmpeg and includes the new module. No database-schema migration or Android code change. Worker and deployment documentation: [backend README](../backend/README.md).
+- **Checks/results:** Python 3.13.15 on Windows: `python -m unittest discover -s backend -p "test_*.py"` with `FAMILYTUBE_TEST_FFMPEG` passed all **38** tests. The real test used locally staged FFmpeg 7.1 and synthetic MP4/MOV/VP9 WebM, including a 0.2-second clip. Python compilation, `python backend/server.py --help`, and `git diff --check` passed. A local Docker image built from the production Dockerfile; the same **38** tests passed as UID 10001 with Debian FFmpeg 5.1.9 and no container network. Commands are recorded in the backend README.
+- **Integration evidence:** Local production-image startup with scan interval zero, two preserved H.264 fixture videos mounted read-only, writable container `/data`, and UID 10001 generated two 640x360 images. Catalog URLs, JPEG GET/HEAD, byte-range playback (206/64 bytes), manual retry/cache reuse and graceful shutdown passed; original video SHA-256 values were unchanged. Fixtures/tool downloads/test image were local only; no live server or database was changed.
+- **Observed fixes:** Real decoding exposed an MJPEG color-range issue; explicitly selecting `yuvj420p` resolved it. Tests also covered source replacement mid-extraction, missing executables, invalid/partial output, timeout/shutdown process cleanup, per-video failure recovery, restart reuse and overlapping worker/scan requests.
+- **Limits/next:** Deployment is pending as a separate action. Measure NAS CPU/disk contention and check the full family library after deployment; no physical-device/performance claim is made. Stat-based source identity is documented, and old generated versions are retained without automatic garbage collection. The existing unrelated backend database/client changes were preserved. S6 remains the next unstarted Android stage; S7 PIN-gated settings remain unstarted.
+
+### 2026-10-02 - Next-video implementation and emulator checks finished
+
+- **Changed areas:** Shared retained countdown with same-library candidate/selection guards; phone Next/countdown/Cancel; TV Next, Back cancellation and Media Next; automatic watch-route updates. Catalog refresh retains the phone's existing related candidates while loading. No backend change. README, architecture and agent requirements reflect the user's new autoplay policy.
+- **Checks/results:** Both app and instrumentation APKs assembled; both lint tasks passed with zero errors (14 phone and 3 TV warnings); 12 shared JVM tests passed. Phone instrumentation passed all 9 tests, including fullscreen/countdown, cancellation, immediate/automatic advance, selection and background. TV passed all 7 tests using a prepared faststart fixture, including remote Next/Back/Media Next and real automatic advance. Commands and evidence: [Next-video verification](docs/NEXT_VIDEO_VERIFICATION.md).
+- **Evidence/issues:** Existing A36 API 37 and Google TV API 34 emulators; isolated H.264/AAC fixtures only. Original EOF-index MP4 produced repeatable intermittent TV HTTP 416/source errors at initial selection/resume/advance; a logged seek exceeded file bounds. Moving the index ahead of media in a preserved-copy fixture allowed the full TV journey to pass. The exact extractor cause and full-family-media compatibility remain unresolved; do not equate prepared-fixture acceptance with universal codec/container support.
+- **Status:** Requested code and emulator checks are finished. Physical-device, accessibility and broad media validation remain pending. Installations/data were retained; phone and TV fixture journeys restore prior server settings. The unrelated backend database change was preserved; fixtures were stopped.
+- **Next action:** S6 version-safe caching/preloading/performance when authorized; carry the TV range/media issue into compatibility/recovery checks. Persistent PIN-gated autoplay settings remain S7 work.
+
+### 2026-10-02 - Next button and five-second automatic advance started
+
+- **Scope/status:** In progress. User requested Next plus automatic next-video playback five seconds after completion unless another item is selected. This overrides the earlier autoplay-off default for this increment; the future PIN-gated preference remains S7 work.
+- **Changed areas planned:** Shared countdown/cancellation ownership, phone/TV Next and countdown controls, selection/lifecycle guards, and focused emulator verification. Use the first cached related item from the same family library; no backend changes.
+- **Initial evidence:** Phone emulator `emulator-5554` is available. Existing backend watch database changes are unrelated and preserved. Physical-device checks remain deferred.
+- **Next action:** Build both apps and verify immediate Next, end countdown, manual selection, cancellation, fullscreen retention and background/leave behavior.
 
 ### 2026-10-02 - S5 emulator acceptance finished; physical TV verification pending
 

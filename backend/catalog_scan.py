@@ -14,6 +14,7 @@ class CatalogScanner:
         self.requested = False
         self.stopped = False
         self.thread = None
+        self.on_scan = None
         with store.connect() as db:
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS catalog_scan_state (
@@ -40,6 +41,20 @@ class CatalogScanner:
                     'videoCount': len(self.cached), 'lastScanAt': self.last_scan_at,
                     'nextScanAt': int(self.next_scan_at * 1000) if self.next_scan_at else None,
                     'lastError': self.last_error}
+
+    def publish_thumbnail(self, video_id, file, artwork):
+        """Publish worker artwork without decoding or rescanning on request threads."""
+        with self.condition:
+            for index, video in enumerate(self.cached):
+                if video['id'] == video_id and video['file'] == file:
+                    updated = {**video, **artwork}
+                    if updated == video:
+                        return
+                    with self.store.connect() as db:
+                        db.execute('UPDATE cached_videos SET metadata=? WHERE id=?',
+                                   (json.dumps(updated), video_id))
+                    self.cached[index] = updated
+                    return
 
     def set_interval(self, minutes):
         if type(minutes) is not int or not 0 <= minutes <= 10080:
@@ -73,11 +88,11 @@ class CatalogScanner:
         try:
             videos = self.store.catalog_dates(self.discover())
             completed = int(self.clock() * 1000)
-            with self.store.connect() as db:
-                db.execute('DELETE FROM cached_videos')
-                db.executemany('INSERT INTO cached_videos VALUES (?,?)', [(v['id'], json.dumps(v)) for v in videos])
-                db.execute('UPDATE catalog_scan_state SET last_scan_at=?,last_error=NULL WHERE id=1', (completed,))
             with self.condition:
+                with self.store.connect() as db:
+                    db.execute('DELETE FROM cached_videos')
+                    db.executemany('INSERT INTO cached_videos VALUES (?,?)', [(v['id'], json.dumps(v)) for v in videos])
+                    db.execute('UPDATE catalog_scan_state SET last_scan_at=?,last_error=NULL WHERE id=1', (completed,))
                 self.cached = videos
                 self.last_scan_at = completed
                 self.last_error = None
@@ -96,6 +111,8 @@ class CatalogScanner:
                 self.scanning = False
                 self.next_scan_at = self.clock() + self.interval * 60 if self.interval else None
                 self.condition.notify_all()
+        if succeeded and self.on_scan is not None:
+            self.on_scan()
         return succeeded
 
     def start(self):

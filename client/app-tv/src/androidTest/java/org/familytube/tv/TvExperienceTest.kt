@@ -14,6 +14,24 @@ import org.junit.Rule
 import org.junit.Test
 
 class TvExperienceTest {
+    @Test fun remoteNextAndBackCancelCountdownWithoutLeavingWatch() {
+        var next by mutableStateOf(NextVideoState(video.copy(id = "b", title = "Next story"), 5))
+        var skips = 0
+        var cancellations = 0
+        var leaves = 0
+        compose.setContent { TvTheme {
+            TvWatchControls(video, PlaybackState(video, PlaybackPhase.ENDED, 100_000, 100_000), emptyList(),
+                {}, {}, {}, { leaves++ }, {}, next, { skips++ }, { cancellations++; next = next.copy(secondsRemaining = null) })
+        } }
+        compose.onNodeWithTag("next-countdown").assertIsDisplayed()
+        back()
+        compose.onNodeWithTag("next-countdown").assertDoesNotExist()
+        repeat(4) { key(Key.DirectionRight) }
+        compose.onNodeWithTag("next-video").assertIsFocused()
+        key(Key.DirectionCenter)
+        compose.runOnIdle { assertEquals(1, cancellations); assertEquals(1, skips); assertEquals(0, leaves); next = NextVideoState() }
+        compose.onNodeWithTag("next-video").assertIsNotEnabled()
+    }
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val video = Video("a", "Family story", "Stories", 100.0, "http://127.0.0.1/a", null)
     private fun key(key: Key) { compose.onRoot().performKeyInput { pressKey(key) } }

@@ -30,6 +30,9 @@ import org.familytube.core.playback.*
 internal fun PhoneWatch(video: Video?, related: List<Video>, playback: PlaybackViewModel, fullscreen: Boolean,
     onBack: () -> Unit, onFullscreen: () -> Unit, onSelect: (Video) -> Unit) {
     val player by playback.player.collectAsState()
+    LaunchedEffect(video, related) {
+        if (video != null) playback.setNextCandidates(video, related)
+    }
     Column(Modifier.fillMaxSize().background(FamilyColors.background).then(if (fullscreen) Modifier else Modifier.safeDrawingPadding())) {
         // Keep the surface in the same composition slot in both presentations.
         Box(if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
@@ -70,18 +73,20 @@ private fun PosterUntilFrame(video: Video?, playback: PlaybackViewModel, detache
 private fun WatchControlsHost(video: Video?, playback: PlaybackViewModel, fullscreen: Boolean, onBack: () -> Unit, onFullscreen: () -> Unit) {
     // Position ticks update controls independently from the surface and related list.
     val state by playback.state.collectAsState()
+    val next by playback.nextState.collectAsState()
     PhoneControls(state, video, fullscreen, onBack, onFullscreen,
         onPlayPause = {
             if (state.phase == PlaybackPhase.PLAYING || state.phase == PlaybackPhase.BUFFERING || state.phase == PlaybackPhase.PREPARING) playback.pause()
             else if (state.video == null && video != null) playback.play(video)
             else playback.resume()
-        }, onSeek = playback::seekTo)
+        }, onSeek = playback::seekTo, next = next, onNext = playback::playNext, onCancelNext = playback::cancelNext)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PhoneControls(state: PlaybackState, video: Video?, fullscreen: Boolean,
-    onBack: () -> Unit, onFullscreen: () -> Unit, onPlayPause: () -> Unit, onSeek: (Long) -> Unit) {
+    onBack: () -> Unit, onFullscreen: () -> Unit, onPlayPause: () -> Unit, onSeek: (Long) -> Unit,
+    next: NextVideoState = NextVideoState(), onNext: () -> Unit = {}, onCancelNext: () -> Unit = {}) {
     var visible by remember(video?.id) { mutableStateOf(true) }
     var interaction by remember { mutableIntStateOf(0) }
     var scrubMs by remember(video?.id) { mutableStateOf<Long?>(null) }
@@ -146,7 +151,14 @@ internal fun PhoneControls(state: PlaybackState, video: Video?, fullscreen: Bool
                 if (state.phase == PlaybackPhase.FAILED) Text("Playback failed. Check your server and retry.",
                     color = Color.White, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("playback-error"))
                 val shown = scrubMs ?: state.positionMs
-                if (state.phase != PlaybackPhase.FAILED) Slider(value = shown.coerceIn(0, duration.coerceAtLeast(1)).toFloat(),
+                if (next.secondsRemaining != null) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Next in ${next.secondsRemaining}s: ${next.video?.title}", maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).testTag("next-countdown").semantics { liveRegion = LiveRegionMode.Polite },
+                        style = MaterialTheme.typography.labelMedium, color = Color.White)
+                    TextButton(onClick = onCancelNext, modifier = Modifier.testTag("cancel-next")) { Text("Cancel", color = Color.White) }
+                }
+                if (state.phase != PlaybackPhase.FAILED && next.secondsRemaining == null) Slider(value = shown.coerceIn(0, duration.coerceAtLeast(1)).toFloat(),
                     onValueChange = { scrubMs = it.toLong(); interact() },
                     onValueChangeFinished = { scrubMs?.let(onSeek); scrubMs = null; interact() },
                     valueRange = 0f..duration.coerceAtLeast(1).toFloat(), enabled = duration > 0,
@@ -166,6 +178,7 @@ internal fun PhoneControls(state: PlaybackState, video: Video?, fullscreen: Bool
                     Text("${formatTime(shown)} / ${if (duration > 0) formatTime(duration) else "--:--"}",
                         modifier = Modifier.weight(1f).testTag("position"), style = MaterialTheme.typography.labelMedium, color = Color.White)
                     if (state.phase == PlaybackPhase.ENDED) Text("Finished", style = MaterialTheme.typography.labelMedium, color = Color.White)
+                    ActionIcon("Next video", Glyph.NEXT, { interact(); onNext() }, Modifier.testTag("next-video"), enabled = next.video != null)
                     ActionIcon(if (fullscreen) "Exit fullscreen" else "Fullscreen", if (fullscreen) Glyph.COLLAPSE else Glyph.EXPAND,
                         { interact(); onFullscreen() })
                 }

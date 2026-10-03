@@ -65,7 +65,11 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(catalogState.settingsLoaded, catalogState.serverUrl) {
                     if (catalogState.settingsLoaded && catalogState.serverUrl.isBlank()) showSettings = true
                 }
-                val video = catalogState.allVideos.firstOrNull { it.id == watchId }
+                LaunchedEffect(playbackVideo) {
+                    if (watchId != null && playbackVideo?.libraryId == watchLibraryId) watchId = playbackVideo?.id
+                }
+                val video = playbackVideo?.takeIf { watchId != null && it.libraryId == watchLibraryId }
+                    ?: catalogState.allVideos.firstOrNull { it.id == watchId }
                     ?: playbackVideo?.takeIf { it.id == watchId && it.libraryId == watchLibraryId }
                 fun leaveWatch() { playback.stop(); watchId = null; watchLibraryId = null }
                 BackHandler(enabled = showSettings && watchId == null) { showSettings = false }

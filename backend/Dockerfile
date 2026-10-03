@@ -4,7 +4,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app
-COPY backend/server.py backend/recommendations.py backend/catalog_scan.py backend/catalog.json ./backend/
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+COPY backend/server.py backend/recommendations.py backend/catalog_scan.py backend/thumbnail_worker.py backend/catalog.json ./backend/
 
 RUN mkdir -p /data /media && chown 10001:10001 /data
 USER 10001:10001
