@@ -12,9 +12,9 @@ from http.server import ThreadingHTTPServer
 from urllib.parse import quote
 from urllib.parse import urlsplit
 
-from backend.server import RequestHandler, list_videos
+from backend.server import RequestHandler, list_videos, media_snapshot
 from backend.recommendations import WatchStore
-from backend.catalog_scan import CatalogScanner
+from backend.catalog_scan import CatalogScanner, MediaWatcher
 from backend.thumbnail_worker import ThumbnailWorker
 
 
@@ -78,6 +78,60 @@ class MediaServerTest(unittest.TestCase):
         video = json.loads(body)[0]
         status, _, body = self.request('GET', '/media/' + quote(video['id'], safe=''))
         self.assertEqual((status, body), (200, b'0123456789'))
+
+    def test_downloader_private_directories_and_partial_files_are_not_catalogued(self):
+        before = media_snapshot(self.root, self.catalog)
+        for name in ('.metube', '.metube-tmp'):
+            folder = self.root / name / 'nested'
+            folder.mkdir(parents=True)
+            (folder / 'unfinished.mp4').write_bytes(b'partial')
+            (folder / 'unfinished.info.json').write_text('{}', encoding='utf-8')
+        (self.root / 'unfinished.mp4.part').write_bytes(b'partial')
+        self.assertEqual(media_snapshot(self.root, self.catalog), before)
+        self.scanner.scan_once()
+        videos = json.loads(self.request('GET', '/api/videos')[2])
+        self.assertEqual(len(videos), 2)
+        self.assertTrue(all('unfinished' not in video['file'] for video in videos))
+
+    def test_watcher_publishes_download_metadata_replacement_and_removal_with_schedule_off(self):
+        self.scanner.set_interval(0)
+        watcher = MediaWatcher(
+            lambda: media_snapshot(self.root, self.catalog),
+            lambda: self.scanner.request_scan(queue_if_scanning=True), interval_seconds=.02)
+        watcher.start()
+
+        def wait_for(predicate):
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                videos = json.loads(self.request('GET', '/api/videos')[2])
+                if predicate(videos):
+                    return videos
+                time.sleep(.01)
+            self.fail('Watcher did not publish the expected catalog')
+
+        try:
+            staging = self.root / '.metube-tmp'
+            staging.mkdir()
+            (staging / 'Downloaded [abc].mp4').write_bytes(b'new-video-data')
+            (staging / 'Downloaded [abc].info.json').write_text(
+                json.dumps({'title': 'Downloaded title', 'duration': 42}), encoding='utf-8')
+            target = self.root / 'Downloaded [abc].mp4'
+            metadata = target.with_suffix('.info.json')
+            (staging / metadata.name).rename(metadata)
+            (staging / target.name).rename(target)
+            videos = wait_for(lambda videos: len(videos) == 3)
+            downloaded = next(v for v in videos if v['file'] == target.name)
+            self.assertEqual((downloaded['title'], downloaded['duration']), ('Downloaded title', 42))
+            self.assertEqual(self.request('GET', '/media/' + quote(downloaded['id'], safe=''),
+                                          {'Range': 'bytes=0-2'})[::2], (206, b'new'))
+            metadata.write_text(json.dumps({'title': 'Updated title'}), encoding='utf-8')
+            wait_for(lambda videos: any(v['title'] == 'Updated title' for v in videos))
+            target.unlink()
+            wait_for(lambda videos: len(videos) == 2)
+            self.assertEqual(self.scanner.status()['intervalMinutes'], 0)
+            self.assertIsNone(self.scanner.status()['nextScanAt'])
+        finally:
+            watcher.close()
 
     def test_stream_ranges_and_head(self):
         video = list_videos(self.root, self.catalog)[0]

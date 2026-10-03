@@ -236,6 +236,8 @@ sequenceDiagram
 
 ## 8. Existing backend integration
 
+The root Compose stack also runs parent-managed MeTube and a password-protected read-only Samba `media` share. All services use the same configurable host folder (`backend/media` for new setups; existing paths remain supported). MeTube writes files and metadata, while the backend keeps its media mount read-only. A five-second metadata watcher scans changes after two matching observations, independently of the preserved periodic scan settings. Private `.metube` state and `.metube-tmp` in-progress files are excluded from all discovery. Successful scans retain the existing missing-thumbnail workflow. Clients see new videos on catalog refresh; no public discovery, downloader UI or SMB integration is added to the apps. See [backend setup](../backend/README.md#metube-downloads-and-automatic-discovery).
+
 The following routes were checked in `../backend/server.py`; this is an integration design, not a live-server availability check. `DEPLOYMENT.md` documents `http://192.168.10.151:8000`; use it as a setup hint, never a hard-coded app dependency.
 
 | Existing endpoint | Client usage |

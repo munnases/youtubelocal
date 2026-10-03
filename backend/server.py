@@ -11,11 +11,11 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 if __package__:
     from .recommendations import WatchStore
-    from .catalog_scan import CatalogScanner
+    from .catalog_scan import CatalogScanner, MediaWatcher
     from .thumbnail_worker import ThumbnailWorker, THUMBNAIL_TYPES, find_thumbnail
 else:
     from recommendations import WatchStore
-    from catalog_scan import CatalogScanner
+    from catalog_scan import CatalogScanner, MediaWatcher
     from thumbnail_worker import ThumbnailWorker, THUMBNAIL_TYPES, find_thumbnail
 
 PALETTES = [
@@ -27,6 +27,38 @@ PALETTES = [
     ["#FDCB6E", "#F39C12"],
 ]
 VIDEO_SUFFIXES = {".mp4", ".m4v", ".mov", ".webm"}
+DOWNLOAD_PRIVATE_DIRS = {'.metube', '.metube-tmp'}
+
+
+def library_files(media_dir):
+    if not media_dir.is_dir():
+        raise OSError('The media folder is unavailable.')
+    root = media_dir.resolve()
+
+    def fail(error):
+        raise error
+
+    for folder, directories, filenames in media_dir.walk(on_error=fail):
+        directories[:] = [name for name in directories if name not in DOWNLOAD_PRIVATE_DIRS]
+        for name in filenames:
+            path = folder / name
+            if path.is_file() and path.resolve().is_relative_to(root):
+                yield path
+
+
+def media_snapshot(media_dir, catalog_path):
+    """Watch supported videos, their supplied sidecars and catalog overrides."""
+    identities = []
+    for path in library_files(media_dir):
+        if (path.suffix.lower() in VIDEO_SUFFIXES | THUMBNAIL_TYPES.keys()
+                or path.name.lower().endswith('.info.json')):
+            stat = path.stat()
+            identities.append((path.relative_to(media_dir).as_posix(),
+                               stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
+    if catalog_path.exists():
+        stat = catalog_path.stat()
+        identities.append(('@catalog', stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
+    return tuple(sorted(identities))
 
 
 def load_catalog(path):
@@ -40,14 +72,10 @@ def load_catalog(path):
 
 
 def list_videos(media_dir, catalog_path, thumbnail_dir=None):
-    if not media_dir.is_dir():
-        raise OSError('The media folder is unavailable.')
     catalog = load_catalog(catalog_path)
     videos = []
-    for path in sorted(media_dir.rglob('*'), key=lambda value: value.as_posix().lower()):
-        if not path.is_file() or path.suffix.lower() not in VIDEO_SUFFIXES:
-            continue
-        if not path.resolve().is_relative_to(media_dir.resolve()):
+    for path in sorted(library_files(media_dir), key=lambda value: value.as_posix().lower()):
+        if path.suffix.lower() not in VIDEO_SUFFIXES:
             continue
         relative_path = path.relative_to(media_dir).as_posix()
         try:
@@ -366,6 +394,8 @@ def main():
                         default=Path('backend/data/familytube.sqlite3'))
     parser.add_argument('--scan-interval-minutes', type=int, default=None,
                         help='Override and save the scan interval: 0 disables periodic scans, 1-10080 sets minutes. Default: saved value or 15.')
+    parser.add_argument('--media-watch-seconds', type=float, default=0,
+                        help='Poll the library for settled changes independently of the saved scan schedule. 0 disables watching (default); Compose uses 5 seconds.')
     parser.add_argument('--thumbnail-dir', type=Path, default=None,
                         help='Writable generated artwork directory. Default: thumbnails beside the watch database.')
     parser.add_argument('--ffmpeg', default='ffmpeg', help='FFmpeg executable name or path.')
@@ -373,6 +403,8 @@ def main():
     args = parser.parse_args()
     if args.scan_interval_minutes is not None and not 0 <= args.scan_interval_minutes <= 10080:
         parser.error('--scan-interval-minutes must be between 0 and 10080')
+    if not math.isfinite(args.media_watch_seconds) or args.media_watch_seconds < 0:
+        parser.error('--media-watch-seconds must be finite and nonnegative')
     args.media.mkdir(parents=True, exist_ok=True)
     RequestHandler.media_dir = args.media.resolve()
     RequestHandler.catalog_path = args.catalog.resolve()
@@ -388,9 +420,17 @@ def main():
     if args.scan_interval_minutes is not None:
         RequestHandler.scanner.set_interval(args.scan_interval_minutes)
     server = ThreadingHTTPServer((args.host, args.port), RequestHandler)
+    watcher = None
+    if args.media_watch_seconds:
+        watcher = MediaWatcher(
+            lambda: media_snapshot(RequestHandler.media_dir, RequestHandler.catalog_path),
+            lambda: RequestHandler.scanner.request_scan(queue_if_scanning=True),
+            interval_seconds=args.media_watch_seconds)
     print(
         f"FamilyTube is serving {RequestHandler.media_dir} at http://{args.host}:{args.port}")
     try:
+        if watcher:
+            watcher.start()
         RequestHandler.scanner.scan_once()
         RequestHandler.scanner.start()
         if RequestHandler.thumbnail_worker:
@@ -399,6 +439,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        if watcher:
+            watcher.close()
         RequestHandler.scanner.close()
         if RequestHandler.thumbnail_worker:
             RequestHandler.thumbnail_worker.close()

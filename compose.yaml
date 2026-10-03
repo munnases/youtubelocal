@@ -9,11 +9,27 @@ services:
     init: true
     stop_signal: SIGINT
     stop_grace_period: 15s
+    command:
+      - python
+      - -u
+      - backend/server.py
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --media
+      - /media
+      - --catalog
+      - /app/backend/catalog.json
+      - --db
+      - /data/familytube.sqlite3
+      - --media-watch-seconds
+      - "${FAMILYTUBE_MEDIA_WATCH_SECONDS:-5}"
     ports:
       - "${FAMILYTUBE_BIND_IP:-0.0.0.0}:${FAMILYTUBE_PORT:-8000}:8000"
     volumes:
       - type: bind
-        source: ${FAMILYTUBE_MEDIA_DIR:-/srv/media/kids}
+        source: ${FAMILYTUBE_MEDIA_DIR:-./backend/media}
         target: /media
         read_only: true
         bind:
@@ -31,6 +47,67 @@ services:
       timeout: 5s
       start_period: 60s
       retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  metube:
+    image: ${FAMILYTUBE_METUBE_IMAGE:-ghcr.io/alexta69/metube:latest}
+    user: "${FAMILYTUBE_MEDIA_UID:-10001}:${FAMILYTUBE_MEDIA_GID:-10001}"
+    restart: unless-stopped
+    ports:
+      - "${FAMILYTUBE_BIND_IP:-0.0.0.0}:${FAMILYTUBE_METUBE_PORT:-8081}:8081"
+    environment:
+      PUID: "${FAMILYTUBE_MEDIA_UID:-10001}"
+      PGID: "${FAMILYTUBE_MEDIA_GID:-10001}"
+      UMASK: "022"
+      CHOWN_DIRS: "false"
+      DOWNLOAD_DIR: /downloads
+      AUDIO_DOWNLOAD_DIR: /downloads
+      TEMP_DIR: /downloads/.metube-tmp
+      STATE_DIR: /downloads/.metube
+      # Keep temporary and final files on one filesystem for the final rename.
+      OUTPUT_TEMPLATE: "%(title)s [%(id)s].%(ext)s"
+      OUTPUT_TEMPLATE_PLAYLIST: "%(playlist_title)s/%(title)s [%(id)s].%(ext)s"
+      OUTPUT_TEMPLATE_CHANNEL: "%(channel)s/%(title)s [%(id)s].%(ext)s"
+      YTDL_OPTIONS: '{"writeinfojson":true,"writethumbnail":true,"merge_output_format":"mp4"}'
+    volumes:
+      - type: bind
+        source: ${FAMILYTUBE_MEDIA_DIR:-./backend/media}
+        target: /downloads
+        bind:
+          create_host_path: false
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  samba:
+    image: ${FAMILYTUBE_SAMBA_IMAGE:-ghcr.io/servercontainers/samba:smbd-only-latest}
+    restart: unless-stopped
+    ports:
+      - "${FAMILYTUBE_BIND_IP:-0.0.0.0}:445:445"
+    environment:
+      ACCOUNT_familytube: "${FAMILYTUBE_SAMBA_PASSWORD:?Set FAMILYTUBE_SAMBA_PASSWORD in .env}"
+      UID_familytube: "${FAMILYTUBE_MEDIA_UID:-10001}"
+      AVAHI_DISABLE: "1"
+      WSDD2_DISABLE: "1"
+      NETBIOS_DISABLE: "1"
+      SAMBA_CONF_MAP_TO_GUEST: Never
+      SAMBA_VOLUME_CONFIG_media: >-
+        [media]; path = /shares/media; valid users = familytube;
+        guest ok = no; read only = yes; browseable = yes;
+        veto files = /.metube/.metube-tmp/
+    volumes:
+      - type: bind
+        source: ${FAMILYTUBE_MEDIA_DIR:-./backend/media}
+        target: /shares/media
+        read_only: true
+        bind:
+          create_host_path: false
     logging:
       driver: json-file
       options:

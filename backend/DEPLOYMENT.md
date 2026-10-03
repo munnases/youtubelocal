@@ -6,21 +6,22 @@ The existing APK can use this server without a rebuild.
 
 ## Storage
 
-- `/srv/media/kids` on the host is mounted read-only at `/media`. Put new videos and their matching thumbnail/metadata files here, including in subfolders.
+- The recorded deployment's `/srv/media/kids` on the host is mounted read-only at `/media`. Retain that `FAMILYTUBE_MEDIA_DIR` setting when upgrading. New Compose installations default to `./backend/media`. MeTube writes to the same host folder via `/downloads`; Samba exposes it read-only as `media`. Put supplied videos and matching thumbnail/metadata files here, including in subfolders.
 - Docker volume `familytube_backend-data` holds `/data/familytube.sqlite3`, including each device's watch history, suggestions, and scan settings.
 - Generated thumbnails are stored in `/data/thumbnails` in that same volume. The image includes FFmpeg; a single background worker fills missing artwork after startup and successful scans. Supplied thumbnails remain preferred and `/media` stays read-only. See [worker behavior and API](README.md#missing-thumbnail-worker).
-- Scanning defaults to every 15 minutes, also runs at startup, and can be changed or triggered in the app's **Library scanning** settings.
-- The container runs as UID/GID `10001:10001`. Media files must be readable and their directories traversable by this user; media ownership does not need to change.
+- Periodic scanning defaults to every 15 minutes, also runs at startup, and can be changed or triggered through the existing scan API/settings. Compose additionally polls for settled folder changes every five seconds, normally adding completed downloads within 5–10 seconds and triggering missing thumbnails. This watcher preserves the saved schedule, including zero/off. See [automatic discovery](README.md#metube-downloads-and-automatic-discovery).
+- The backend runs as UID/GID `10001:10001`. Media files must be readable and their directories traversable by this user. Set `FAMILYTUBE_MEDIA_UID/GID` to an existing identity with write access for MeTube; do not change existing media ownership. MeTube leaves directory ownership intact and creates files with umask `022`.
 
 ## Start or update
 
 Use the root [compose.yaml](../compose.yaml), [.dockerignore](../.dockerignore), and [.env.example](../.env.example), with `backend/` containing its Dockerfile, `server.py`, `recommendations.py`, `catalog_scan.py`, `thumbnail_worker.py`, and `catalog.json`. You can copy these files to `/home/debian/familytube` while keeping this layout; the Android source/build output is unnecessary on the backend host. Install Docker Engine and the Compose plugin, and ensure the media directory already exists.
 
-For a new deployment, copy `.env.example` to `.env`, set `FAMILYTUBE_MEDIA_DIR` to the host library, and choose the bind IP/port. For an existing deployment, preserve its `.env` and data volume; the default `FAMILYTUBE_DATA_VOLUME=familytube_backend-data` matches the recorded volume. Changing that name selects a different data store. See [Compose configuration](README.md#docker-compose) for all settings.
+For a new deployment, copy `.env.example` to `.env`, set `FAMILYTUBE_MEDIA_DIR` to the host library, choose the bind IP/ports, and set a private `FAMILYTUBE_SAMBA_PASSWORD`. For an existing deployment, preserve its `.env`, media path and data volume; add the required Samba password and writer UID/GID. The default `FAMILYTUBE_DATA_VOLUME=familytube_backend-data` matches the recorded volume. Changing that name selects a different data store. See [Compose configuration](README.md#docker-compose) for all settings. Ensure TCP 445 is free for Samba and the chosen library is writable by MeTube before starting the three services.
 
 ```bash
 cd /home/debian/familytube
 docker compose config --quiet
+docker compose pull metube samba
 docker compose build --pull
 docker compose up -d
 docker compose ps
@@ -38,7 +39,7 @@ docker compose logs --tail=100 backend
 docker compose restart backend
 ```
 
-Port 8000 is for devices on the home network. The device ID provides personalization, not authentication. `FAMILYTUBE_BIND_IP` optionally restricts the published port to a particular host IP.
+Ports 8000 (API), 8081 (MeTube web UI) and TCP 445 (SMB) are for the home network; all honor `FAMILYTUBE_BIND_IP`. Open `http://192.168.10.151:8081` for parent-managed downloads after deployment. From another PC, connect to `\\192.168.10.151\media` with username `familytube` and the password chosen in `.env`. The share permits browsing/copying out, not modification; discovery services are disabled, so use the address directly. MeTube's web UI has no login in this configuration. The backend device ID provides personalization, not authentication. The new stack has not been deployed to the recorded home server.
 
 ## Database backup
 

@@ -104,6 +104,30 @@ class CatalogScanTest(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(self.scanner.videos(), [])
 
+    def test_watched_change_during_scan_queues_a_followup(self):
+        started, release = threading.Event(), threading.Event()
+        calls = []
+
+        def discover():
+            calls.append(1)
+            if len(calls) == 1:
+                started.set()
+                release.wait(2)
+            return list(self.source)
+
+        self.scanner.discover = discover
+        self.scanner.start()
+        self.scanner.request_scan()
+        self.assertTrue(started.wait(2))
+        try:
+            self.source.append(dict(id='b', title='New', addedAt=200000, category='Music'))
+            self.scanner.request_scan(queue_if_scanning=True)
+        finally:
+            release.set()
+        self.wait_complete()
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([v['id'] for v in self.scanner.videos()], ['a', 'b'])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -32,6 +32,8 @@ Phone and TV UI stages can be developed independently after shared contracts sta
 
 ## Stage tracker
 
+MeTube and Samba increment (2026-10-03): **Complete** for local implementation and verification. Shared configurable media storage defaults to `backend/media`; actual MeTube downloading, automatic catalog/thumbnails, authenticated read-only SMB access and restart persistence passed using isolated fixtures. Saved scan settings and existing data are preserved. Home-server deployment and actual NAS/LAN access remain pending; Android stages are unchanged.
+
 Compose and production-build documentation increment (2026-10-03): **Complete** for the requested configuration and instructions. Local Compose startup/restart and release build/lint/alignment checks passed. Production signing, device release acceptance and home-server deployment remain pending operator actions; S6-S8 implementation is unchanged.
 
 Backend thumbnail increment (2026-10-02): **Complete** for the authorized local implementation and verification scope. Automatic background generation fills missing artwork, preserving supplied sidecars and the read-only media mount. Windows and Linux/Docker checks passed with isolated fixtures; home-server deployment and NAS contention/full-library checks remain pending. This independent backend scope does not start S6 or change Android behavior.
@@ -196,6 +198,20 @@ Use `Not started`, `In progress`, `Verification pending`, `Blocked`, `Complete`,
 **Exit checks:** quick navigation has no overlapping audio, unbounded preload growth, or stale selection takeover; only parent-supplied library content appears; Back saves/stops as specified; first-release regular-video journeys still pass. Add Shorts-specific device performance evidence.
 
 ## Progress record
+
+### 2026-10-03 - MeTube and Samba completed
+
+- **Changed areas:** Compose MeTube/Samba services with one shared media bind, non-root downloader identity and preserved directory ownership, metadata/artwork sidecars, collision-reducing filenames, required private SMB password, read-only share and hidden downloader internals. Backend folder watcher polls every five seconds, waits for two matching observations and queues follow-up scans during ongoing work. Saved scan settings, endpoints, device IDs and watch database schema are unchanged. README, architecture, environment example and deployment instructions describe setup and compatibility.
+- **Checks/results:** Windows `python -m unittest discover -s backend -p "test_*.py"`: 46 tests ran, 45 passed and the optional real-FFmpeg test skipped. All 46 passed with FFmpeg in the production Linux image as UID 10001. `docker compose config --quiet`, default shared-path assertion, required-password rejection, image build, CLI help and `git diff --check` passed. Regression coverage includes settling, folder recovery, callback retry, scan overlap, private/partial-file exclusion, metadata updates and automatic add/remove with periodic scanning off.
+- **Integration evidence:** Isolated project `familytube-metube-samba-fixture`, fixture-only media/database, localhost ports 18080/18081/14445 and a private synthetic-video source. Actual MeTube download succeeded and appeared in `/api/videos` in 5.9 seconds with periodic scanning disabled. Original bytes, `.info.json`, generated/served JPEG, HTTP 206, persisted watch progress, scan-off setting and MeTube completion state passed. Backend/MeTube/Samba reached healthy status and retained state across restart. SMB authenticated listing/read matched the original bytes; private folders were hidden and writes, guest share access and wrong passwords were denied. Read-only backend/Samba mounts and writable non-root MeTube mount were inspected. Fixture containers/network/database volume were removed; local scripts/overrides/synthetic media stay under ignored `client/build/metube-samba-check/`.
+- **Observed fix:** MeTube's root entrypoint created unwritable state directories when ownership changes were disabled. Compose now starts directly as the configured UID/GID, including directory creation, without changing existing library ownership.
+- **Limits/next:** No home-server update, public-site download acceptance or actual-PC/NAS LAN verification is claimed. Deploy with a private Samba password and a writer identity matching the existing media folder, then check physical LAN access and refresh clients. MeTube downloads require internet; existing-library viewing does not. NAS polling/resource cost and broader codec acceptance remain pending. S6 is still the next unstarted Android stage.
+
+### 2026-10-03 - MeTube and Samba started
+
+- **Scope:** Compose services sharing `backend/media` by default (or the existing configured library), separate temporary download paths excluded from discovery, and a background folder watcher independent of the saved periodic scan schedule.
+- **Initial evidence:** Working tree was clean; Python and Docker are available. Existing catalog scanning is scheduled every 15 minutes and already triggers missing-thumbnail generation.
+- **Next action:** Implement and check automatic discovery, metadata handling, read-only authenticated SMB access, shared-path permissions and restart behavior using isolated fixtures.
 
 ### 2026-10-03 - Backend Compose and production APK guide completed
 

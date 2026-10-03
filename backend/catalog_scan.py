@@ -1,5 +1,6 @@
 """Cached catalog with a persistent, server-wide background scan schedule."""
 import json
+import logging
 import threading
 import time
 
@@ -67,9 +68,9 @@ class CatalogScanner:
             self.condition.notify_all()
         return self.status()
 
-    def request_scan(self):
+    def request_scan(self, queue_if_scanning=False):
         with self.condition:
-            if not self.scanning:
+            if not self.scanning or queue_if_scanning:
                 self.requested = True
                 self.condition.notify_all()
         return self.status()
@@ -141,5 +142,60 @@ class CatalogScanner:
         with self.condition:
             self.stopped = True
             self.condition.notify_all()
+        if self.thread is not None:
+            self.thread.join(timeout=5)
+
+
+class MediaWatcher:
+    """Poll file identities and rescan after two matching observations.
+
+    The watcher does not change the saved periodic schedule. Snapshot failures
+    preserve the catalog and retry; temporary downloader directories are omitted
+    by the supplied snapshot function.
+    """
+
+    def __init__(self, snapshot, on_change, interval_seconds=5):
+        self.snapshot = snapshot
+        self.on_change = on_change
+        self.interval_seconds = interval_seconds
+        self.stopped = threading.Event()
+        self.thread = None
+        self.observed = None
+        self.published = None
+        self.last_error = None
+
+    def poll(self):
+        try:
+            current = self.snapshot()
+            if self.observed is None and self.last_error is None:
+                # Startup discovery follows this first observation.
+                self.published = current
+            elif current == self.observed and current != self.published:
+                self.on_change()
+                self.published = current
+            self.observed = current
+            self.last_error = None
+        except Exception as error:
+            message = str(error) or type(error).__name__
+            if message != self.last_error:
+                logging.warning('Media watcher will retry: %s', message)
+            self.last_error = message
+            self.observed = None
+            self.published = None
+
+    def start(self):
+        if self.thread is not None:
+            return
+        # Take the baseline before the startup scan, covering changes during it.
+        self.poll()
+        self.thread = threading.Thread(target=self._run, name='media-watcher', daemon=True)
+        self.thread.start()
+
+    def _run(self):
+        while not self.stopped.wait(self.interval_seconds):
+            self.poll()
+
+    def close(self):
+        self.stopped.set()
         if self.thread is not None:
             self.thread.join(timeout=5)
