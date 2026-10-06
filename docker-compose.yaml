@@ -85,35 +85,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  samba:
-    image: ${FAMILYTUBE_SAMBA_IMAGE:-ghcr.io/servercontainers/samba:smbd-only-latest}
-    restart: unless-stopped
-    ports:
-      - "${FAMILYTUBE_BIND_IP:-0.0.0.0}:445:445"
-    environment:
-      ACCOUNT_familytube: "${FAMILYTUBE_SAMBA_PASSWORD:?Set FAMILYTUBE_SAMBA_PASSWORD in .env}"
-      UID_familytube: "${FAMILYTUBE_MEDIA_UID:-10001}"
-      AVAHI_DISABLE: "1"
-      WSDD2_DISABLE: "1"
-      NETBIOS_DISABLE: "1"
-      SAMBA_CONF_MAP_TO_GUEST: Never
-      SAMBA_VOLUME_CONFIG_media: >-
-        [media]; path = /shares/media; valid users = familytube;
-        guest ok = no; read only = yes; browseable = yes;
-        veto files = /.metube/.metube-tmp/
-    volumes:
-      - type: bind
-        source: ${FAMILYTUBE_MEDIA_DIR:-./backend/media}
-        target: /shares/media
-        read_only: true
-        bind:
-          create_host_path: false
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
 volumes:
   backend-data:
     name: ${FAMILYTUBE_DATA_VOLUME:-familytube_backend-data}
