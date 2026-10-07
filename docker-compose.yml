@@ -55,13 +55,13 @@ services:
 
   metube:
     image: ${FAMILYTUBE_METUBE_IMAGE:-ghcr.io/alexta69/metube:latest}
-    user: "${FAMILYTUBE_MEDIA_UID:-10001}:${FAMILYTUBE_MEDIA_GID:-10001}"
+    user: "${FAMILYTUBE_MEDIA_UID:-1000}:${FAMILYTUBE_MEDIA_GID:-1000}"
     restart: unless-stopped
     ports:
       - "${FAMILYTUBE_BIND_IP:-0.0.0.0}:${FAMILYTUBE_METUBE_PORT:-8081}:8081"
     environment:
-      PUID: "${FAMILYTUBE_MEDIA_UID:-10001}"
-      PGID: "${FAMILYTUBE_MEDIA_GID:-10001}"
+      PUID: "${FAMILYTUBE_MEDIA_UID:-1000}"
+      PGID: "${FAMILYTUBE_MEDIA_GID:-1000}"
       UMASK: "022"
       CHOWN_DIRS: "false"
       DOWNLOAD_DIR: /downloads
